@@ -1,8 +1,6 @@
 # Chladni
 
-A gesture-controlled generative audio-visual instrument. 
-
-**Note: This project is 100% client-side. There are no external API calls and no backend server. It relies entirely on static hosting and client-side processing (WASM, WebAudio, etc.).**
+Gesture-controlled generative audio-visual instrument — a Rust/WASM synth engine driven by real-time hand tracking, rendering live Chladni cymatics patterns in raw WebGL. 100% client-side, no backend, no APIs.
 
 ## Phase 1: Rust/WASM Synth Core
 
