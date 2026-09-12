@@ -24,3 +24,6 @@ synth-core/target/
 app/node_modules/
 app/dist/
 
+
+synth-core/test/node_modules/
+

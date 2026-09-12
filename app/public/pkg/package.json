@@ -1,0 +1,15 @@
+{
+  "name": "synth-core",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "synth_core_bg.wasm",
+    "synth_core.js",
+    "synth_core.d.ts"
+  ],
+  "main": "synth_core.js",
+  "types": "synth_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
