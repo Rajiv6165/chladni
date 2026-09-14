@@ -4,6 +4,7 @@
   import { HandTracker } from './lib/HandTracker';
   import { GestureMapper } from './lib/GestureMapper';
   import { DrawingUtils, HandLandmarker } from '@mediapipe/tasks-vision';
+  import ChladniVisualizer from './lib/ChladniVisualizer.svelte';
   import './app.css';
 
   let videoEl: HTMLVideoElement;
@@ -18,6 +19,7 @@
   let initError = '';
   let fallbackMode = false;
   let isAudioReady = false;
+  let hasStarted = false;
 
   // Fallback UI State
   let cutoff = 1000;
@@ -38,6 +40,7 @@
   async function startApp() {
     isInitializing = true;
     initError = '';
+    hasStarted = true;
     
     try {
       // Init Audio Engine
@@ -132,9 +135,10 @@
 </script>
 
 <main class="app-container">
-  <h1>Chladni: Phase 2 - Gesture Control</h1>
+  <ChladniVisualizer />
+  <h1>Chladni: Phase 3 - Visualizer</h1>
   
-  {#if !isAudioReady && !isInitializing}
+  {#if !hasStarted}
     <div class="start-screen">
       <button class="btn-start" on:click={startApp}>Start Experience</button>
       <p>Will request webcam access</p>

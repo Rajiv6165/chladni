@@ -1,8 +1,9 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: #1a1a2e;
+  background-color: transparent;
   color: #fff;
+  overflow: hidden; /* Prevent scrolling when visualizer is active */
 }
 
 .app-container {
@@ -44,14 +45,16 @@ h1 {
 }
 
 .tracker-container {
-  position: relative;
-  width: 640px;
-  height: 480px;
-  background: #0f0f1a;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 320px;
+  height: 240px;
+  background: rgba(15, 15, 26, 0.8);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  margin-bottom: 2rem;
+  z-index: 10;
 }
 
 .overlay-canvas {

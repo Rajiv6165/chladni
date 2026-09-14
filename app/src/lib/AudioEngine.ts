@@ -3,6 +3,12 @@ export class AudioEngine {
     synthWorkletNode: AudioWorkletNode | null = null;
     isReady: boolean = false;
 
+    analyserNode: AnalyserNode | null = null;
+    targetFreq: number = 0;
+    currentFreq: number = 0;
+    freqEmaAlpha: number = 0.1;
+    timeDomainData: Float32Array | null = null;
+
     constructor() {}
 
     async init(onReady?: () => void) {
@@ -15,7 +21,13 @@ export class AudioEngine {
             await this.audioCtx.audioWorklet.addModule('/worklet.js?v=9', { type: 'module' });
             
             this.synthWorkletNode = new AudioWorkletNode(this.audioCtx, 'synth-worklet');
-            this.synthWorkletNode.connect(this.audioCtx.destination);
+            
+            this.analyserNode = this.audioCtx.createAnalyser();
+            this.analyserNode.fftSize = 2048;
+            this.timeDomainData = new Float32Array(this.analyserNode.fftSize);
+
+            this.synthWorkletNode.connect(this.analyserNode);
+            this.analyserNode.connect(this.audioCtx.destination);
             
             // Load WASM from the public directory
             const response = await fetch('/pkg/synth_core_bg.wasm?v=8');
@@ -49,6 +61,10 @@ export class AudioEngine {
 
     noteOn(freq: number, velocity: number = 1.0) {
         if (!this.synthWorkletNode || !this.isReady) return;
+        
+        this.targetFreq = freq;
+        if (this.currentFreq === 0) this.currentFreq = freq;
+
         this.synthWorkletNode.port.postMessage({
             type: 'note_on',
             freq,
@@ -58,6 +74,9 @@ export class AudioEngine {
 
     noteOff(freq: number) {
         if (!this.synthWorkletNode || !this.isReady) return;
+        
+        this.targetFreq = 0;
+
         this.synthWorkletNode.port.postMessage({
             type: 'note_off',
             freq
@@ -77,6 +96,25 @@ export class AudioEngine {
     setReverb(value: number) {
         if (!this.synthWorkletNode || !this.isReady) return;
         this.synthWorkletNode.port.postMessage({ type: 'set_reverb', value });
+    }
+
+    getAnalysis(): { rms: number, freq: number } {
+        if (!this.analyserNode || !this.timeDomainData) {
+            return { rms: 0, freq: this.currentFreq };
+        }
+        
+        this.analyserNode.getFloatTimeDomainData(this.timeDomainData);
+        let sumSquares = 0;
+        for (let i = 0; i < this.timeDomainData.length; i++) {
+            sumSquares += this.timeDomainData[i] * this.timeDomainData[i];
+        }
+        const rms = Math.sqrt(sumSquares / this.timeDomainData.length);
+
+        if (this.targetFreq > 0) {
+            this.currentFreq = this.currentFreq + (this.targetFreq - this.currentFreq) * this.freqEmaAlpha;
+        }
+
+        return { rms, freq: this.currentFreq };
     }
 }
 
