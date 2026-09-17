@@ -5,6 +5,7 @@
   import { GestureMapper } from './lib/GestureMapper';
   import { DrawingUtils, HandLandmarker } from '@mediapipe/tasks-vision';
   import ChladniVisualizer from './lib/ChladniVisualizer.svelte';
+  import RotaryDial from './lib/RotaryDial.svelte';
   import './app.css';
 
   let videoEl: HTMLVideoElement;
@@ -21,12 +22,40 @@
   let isAudioReady = false;
   let hasStarted = false;
 
-  // Fallback UI State
-  let cutoff = 1000;
-  let resonance = 0.5;
-  let reverb = 0.5;
+  // Normalized dial values (0.0 to 1.0)
+  let cutoffNorm = 0.5;
+  let resonanceNorm = 0.5;
+  let reverbNorm = 0.5;
 
-  let currentNoteFreq = 0; // To track which note to turn off
+  // Dragging state to prevent gesture override
+  let isDraggingCutoff = false;
+  let isDraggingResonance = false;
+  let isDraggingReverb = false;
+
+  let currentNoteFreq = 0;
+
+  $: cutoffActual = 100 * Math.pow(10, 2 * cutoffNorm); // 100 to 10000 Hz
+  $: {
+    if (isAudioReady) audioEngine.setCutoff(cutoffActual);
+  }
+  
+  $: {
+    if (isAudioReady) audioEngine.setResonance(resonanceNorm);
+  }
+  
+  $: {
+    if (isAudioReady) audioEngine.setReverb(reverbNorm);
+  }
+
+  function formatCutoff(val: number) {
+    const hz = 100 * Math.pow(10, 2 * val);
+    if (hz >= 1000) return (hz / 1000).toFixed(1) + 'k';
+    return Math.round(hz).toString();
+  }
+
+  function formatPct(val: number) {
+    return Math.round(val * 100).toString();
+  }
 
   onMount(() => {
     canvasCtx = canvasEl.getContext('2d')!;
@@ -43,16 +72,13 @@
     hasStarted = true;
     
     try {
-      // Init Audio Engine
       await audioEngine.init(() => {
         isAudioReady = true;
       });
       audioEngine.resume();
       
-      // Init MediaPipe
       await handTracker.init();
 
-      // Start Camera
       await handTracker.startCamera(videoEl, (results) => {
         if (!canvasEl || !videoEl) return;
         
@@ -63,17 +89,17 @@
         if (results.landmarks) {
           for (const landmarks of results.landmarks) {
             drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
-              color: "#00FF00",
-              lineWidth: 5
+              color: "rgba(212, 184, 150, 0.4)", // --color-brass-pale
+              lineWidth: 2
             });
             drawingUtils.drawLandmarks(landmarks, {
-              color: "#FF0000",
-              lineWidth: 2
+              color: "rgba(74, 122, 107, 0.8)", // --color-plate-accent
+              lineWidth: 1,
+              radius: 3
             });
           }
         }
 
-        // Map gestures
         const mapped = gestureMapper.process(results);
         
         if (mapped.noteOnEvent && mapped.pitch !== undefined) {
@@ -84,17 +110,22 @@
             currentNoteFreq = 0;
         }
 
-        if (mapped.cutoff !== undefined) audioEngine.setCutoff(mapped.cutoff);
-        if (mapped.reverb !== undefined) audioEngine.setReverb(mapped.reverb);
+        // Only update from gestures if user is not actively dragging the dial
+        if (mapped.cutoff !== undefined && !isDraggingCutoff) {
+            // mapped.cutoff is 100 to 10000. Inverse map to 0-1
+            cutoffNorm = Math.log10(mapped.cutoff / 100) / 2;
+        }
+        if (mapped.reverb !== undefined && !isDraggingReverb) {
+            reverbNorm = mapped.reverb;
+        }
 
       });
 
     } catch (e: any) {
       console.error(e);
       initError = e.message || 'Failed to initialize';
-      fallbackMode = true; // Enable fallback
+      fallbackMode = true;
       
-      // Try initializing audio anyway for fallback mode if it didn't already
       if (!isAudioReady) {
           try {
               await audioEngine.init(() => { isAudioReady = true; });
@@ -107,104 +138,255 @@
       isInitializing = false;
     }
   }
-
-  // Fallback Handlers
-  const notes = [
-    { note: 60, name: 'C4', color: 'white' },
-    { note: 61, name: 'C#4', color: 'black' },
-    { note: 62, name: 'D4', color: 'white' },
-    { note: 63, name: 'D#4', color: 'black' },
-    { note: 64, name: 'E4', color: 'white' },
-    { note: 65, name: 'F4', color: 'white' },
-    { note: 66, name: 'F#4', color: 'black' },
-    { note: 67, name: 'G4', color: 'white' },
-    { note: 68, name: 'G#4', color: 'black' },
-    { note: 69, name: 'A4', color: 'white' },
-    { note: 70, name: 'A#4', color: 'black' },
-    { note: 71, name: 'B4', color: 'white' },
-    { note: 72, name: 'C5', color: 'white' },
-  ];
-
-  function playNoteFallback(note: number) {
-      if (isAudioReady) audioEngine.noteOn(audioEngine.mtof(note));
-  }
-  
-  function stopNoteFallback(note: number) {
-      if (isAudioReady) audioEngine.noteOff(audioEngine.mtof(note));
-  }
 </script>
 
-<main class="app-container">
-  <ChladniVisualizer />
-  <h1>Chladni: Phase 3 - Visualizer</h1>
-  
-  {#if !hasStarted}
-    <div class="start-screen">
-      <button class="btn-start" on:click={startApp}>Start Experience</button>
-      <p>Will request webcam access</p>
-    </div>
-  {/if}
-
-  {#if isInitializing}
-    <div class="loading-state">
-      <p>Loading MediaPipe Models and Initializing Audio...</p>
-    </div>
-  {/if}
-
-  <div class="tracker-container" style="display: {(!fallbackMode && isAudioReady) ? 'block' : 'none'}">
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={videoEl} style="display: none;"></video>
-    <canvas bind:this={canvasEl} class="overlay-canvas"></canvas>
+<main class="instrument-face">
+  <div class="brass-frame">
     
-    <div class="instructions">
-      <p><b>Hand Controls:</b></p>
-      <ul>
-        <li><b>Pinch</b> (Thumb & Index): Note On/Off</li>
-        <li><b>Vertical Position (Y)</b>: Pitch</li>
-        <li><b>Horizontal Position (X)</b>: Filter Cutoff</li>
-        <li><b>Hand Distance (Size)</b>: Reverb Mix</li>
-      </ul>
+    <div class="plate-area">
+      <ChladniVisualizer />
     </div>
+
+    <!-- Oscilloscope-style webcam inset -->
+    <div class="webcam-inset" class:hidden={fallbackMode || !isAudioReady}>
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video bind:this={videoEl} style="display: none;"></video>
+      <canvas bind:this={canvasEl} class="overlay-canvas"></canvas>
+    </div>
+
+    <div class="control-panel">
+      <RotaryDial 
+        label="Cutoff" 
+        bind:value={cutoffNorm} 
+        bind:isDragging={isDraggingCutoff}
+        readout={formatCutoff(cutoffNorm)}
+      />
+      <RotaryDial 
+        label="Reson." 
+        bind:value={resonanceNorm} 
+        bind:isDragging={isDraggingResonance}
+        readout={formatPct(resonanceNorm)}
+      />
+      <RotaryDial 
+        label="Reverb" 
+        bind:value={reverbNorm} 
+        bind:isDragging={isDraggingReverb}
+        readout={formatPct(reverbNorm)}
+      />
+    </div>
+
+    {#if !hasStarted}
+      <div class="power-overlay">
+        <button class="power-button" on:click={startApp}>
+          <span class="power-text">SYSTEM INITIATE</span>
+        </button>
+      </div>
+    {/if}
+
+    {#if isInitializing}
+      <div class="power-overlay loading">
+        <div class="readout-text">CALIBRATING SENSORS...</div>
+      </div>
+    {/if}
+    
+    {#if fallbackMode && isAudioReady}
+      <div class="fallback-warning">
+        OPTICAL SENSOR OFFLINE. MANUAL OVERRIDE ENGAGED.
+      </div>
+    {/if}
   </div>
-
-  {#if fallbackMode && isAudioReady}
-    <div class="fallback-ui">
-      <div class="error-banner">
-        <p>⚠️ Camera access denied or not found. Falling back to mouse/touch controls.</p>
-        {#if initError}<small>{initError}</small>{/if}
-      </div>
-
-      <div class="sliders">
-        <label>
-          Cutoff
-          <input type="range" min="100" max="10000" bind:value={cutoff} on:input={() => audioEngine.setCutoff(cutoff)} />
-        </label>
-        <label>
-          Resonance
-          <input type="range" min="0" max="1" step="0.01" bind:value={resonance} on:input={() => audioEngine.setResonance(resonance)} />
-        </label>
-        <label>
-          Reverb
-          <input type="range" min="0" max="1" step="0.01" bind:value={reverb} on:input={() => audioEngine.setReverb(reverb)} />
-        </label>
-      </div>
-
-      <div class="piano">
-        {#each notes as n}
-          <div 
-            class="key {n.color}" 
-            role="button"
-            tabindex="0"
-            on:mousedown={() => playNoteFallback(n.note)}
-            on:mouseup={() => stopNoteFallback(n.note)}
-            on:mouseleave={() => stopNoteFallback(n.note)}
-            on:touchstart|preventDefault={() => playNoteFallback(n.note)}
-            on:touchend|preventDefault={() => stopNoteFallback(n.note)}
-          >
-            {n.color === 'white' ? n.name : ''}
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
 </main>
+
+<style>
+  .instrument-face {
+    width: 100vw;
+    height: 100vh;
+    padding: 2rem;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--color-base);
+  }
+
+  .brass-frame {
+    position: relative;
+    width: 100%;
+    max-width: 1200px;
+    height: 100%;
+    max-height: 800px;
+    background-color: #1a1612;
+    border-radius: 4px;
+    /* Hairline etched effect */
+    border: 2px solid var(--color-brass-panel);
+    box-shadow: 
+      inset 0 0 0 1px var(--color-brass-pale),
+      0 20px 50px rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    
+    /* Animation initial state */
+    opacity: 0;
+    clip-path: inset(50% 50% 50% 50%);
+  }
+
+  /* Single orchestrated sequence */
+  .brass-frame {
+    animation: frameEngrave 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .plate-area {
+    flex: 1;
+    position: relative;
+    background: #000;
+    border-bottom: 2px solid var(--color-brass-panel);
+    opacity: 0;
+    animation: fadeIn 0.8s ease-out 0.8s forwards;
+  }
+
+  .webcam-inset {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: #000;
+    border: 2px solid var(--color-brass-panel);
+    box-shadow: inset 0 0 0 1px var(--color-brass-pale), 0 4px 10px rgba(0,0,0,0.8);
+    overflow: hidden;
+    z-index: 10;
+    opacity: 0;
+  }
+
+  .webcam-inset:not(.hidden) {
+    animation: fadeIn 0.8s ease-out 1.2s forwards;
+  }
+
+  .overlay-canvas {
+    width: 100%;
+    height: 100%;
+    transform: scaleX(-1);
+    object-fit: cover;
+    /* CRT tint effect */
+    filter: sepia(0.8) hue-rotate(110deg) saturate(1.5) contrast(1.2);
+  }
+
+  .control-panel {
+    height: 160px;
+    background-color: #241c16;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4rem;
+    padding: 0 2rem;
+    box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);
+    
+    opacity: 0;
+    transform: translateY(20px);
+    animation: settleIn 0.6s ease-out 1.4s forwards;
+  }
+
+  .power-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(18, 16, 13, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 20;
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    animation: fadeIn 0.8s ease-out 1.5s forwards;
+  }
+
+  .power-overlay.loading {
+    background: rgba(18, 16, 13, 0.7);
+  }
+
+  .power-button {
+    background: var(--color-brass-panel);
+    border: 2px solid var(--color-brass-pale);
+    color: var(--color-ivory);
+    font-family: var(--font-ui);
+    padding: 1.5rem 3rem;
+    font-size: 1.2rem;
+    letter-spacing: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+    transition: all 0.2s;
+  }
+
+  .power-button:hover {
+    background: var(--color-brass-highlight);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  .power-button:active {
+    transform: scale(0.98);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+  }
+
+  .readout-text {
+    font-family: var(--font-readout);
+    color: var(--color-ivory);
+    font-size: 1.5rem;
+    letter-spacing: 2px;
+    animation: pulse 1.5s infinite alternate;
+  }
+
+  .fallback-warning {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(139, 90, 43, 0.2);
+    border: 1px solid var(--color-brass-highlight);
+    color: var(--color-brass-pale);
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+    border-radius: 2px;
+    z-index: 10;
+  }
+
+  /* Animations */
+  @keyframes frameEngrave {
+    to {
+      opacity: 1;
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+
+  @keyframes settleIn {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulse {
+    from { opacity: 0.5; }
+    to { opacity: 1; }
+  }
+
+  @media (max-width: 768px) {
+    .instrument-face { padding: 1rem; }
+    .control-panel { gap: 1.5rem; }
+    .webcam-inset { width: 100px; height: 100px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .brass-frame, .plate-area, .webcam-inset, .control-panel {
+      animation: none !important;
+      opacity: 1 !important;
+      clip-path: inset(0 0 0 0) !important;
+      transform: none !important;
+    }
+  }
+</style>
