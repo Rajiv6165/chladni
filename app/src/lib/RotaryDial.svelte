@@ -5,6 +5,7 @@
   export let label = '';
   export let readout = '';
   export let isDragging = false;
+  export let gestureColor: string | null = null;
   
   const dispatch = createEventDispatcher();
   
@@ -103,7 +104,10 @@
   >
     <svg viewBox="0 0 100 100" class="knob-svg" class:dragging={isDragging}>
       <!-- Outer metallic ring -->
-      <circle cx="50" cy="50" r="48" fill="var(--color-brass-panel)" stroke="var(--color-brass-pale)" stroke-width="1.5" />
+      <circle cx="50" cy="50" r="48" fill="var(--color-brass-panel)" 
+              stroke={gestureColor && !isDragging ? gestureColor : "var(--color-brass-pale)"} 
+              stroke-width={gestureColor && !isDragging ? "2.5" : "1.5"} 
+              style={gestureColor && !isDragging ? `filter: drop-shadow(0 0 6px ${gestureColor}); transition: all 0.3s ease;` : 'transition: all 0.3s ease;'} />
       
       <!-- Inner darker face -->
       <circle cx="50" cy="50" r="40" fill="#2a2016" />

@@ -22,6 +22,19 @@
   let isAudioReady = false;
   let hasStarted = false;
 
+  let activeHands = { left: false, right: false };
+  let leftHandIndex: number | null = null;
+  let rightHandIndex: number | null = null;
+
+  const leftHandStyle = {
+      connector: "rgba(212, 184, 150, 0.4)", // --color-brass-pale
+      landmark: "rgba(74, 122, 107, 0.8)",   // --color-plate-accent
+  };
+  const rightHandStyle = {
+      connector: "rgba(139, 90, 43, 0.6)",   // --color-brass-highlight
+      landmark: "rgba(232, 220, 196, 0.8)",  // --color-ivory
+  };
+
   // Normalized dial values (0.0 to 1.0)
   let cutoffNorm = 0.5;
   let resonanceNorm = 0.5;
@@ -86,21 +99,32 @@
         canvasEl.height = videoEl.videoHeight;
         canvasCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
         
+        const mapped = gestureMapper.process(results);
+        activeHands = mapped.activeHands || { left: false, right: false };
+        leftHandIndex = mapped.leftHandIndex ?? null;
+        rightHandIndex = mapped.rightHandIndex ?? null;
+
         if (results.landmarks) {
-          for (const landmarks of results.landmarks) {
+          for (let i = 0; i < results.landmarks.length; i++) {
+            const landmarks = results.landmarks[i];
+            let style = leftHandStyle; // Default to left colors
+            if (i === rightHandIndex) {
+                style = rightHandStyle;
+            } else if (i === leftHandIndex) {
+                style = leftHandStyle;
+            }
+            
             drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
-              color: "rgba(212, 184, 150, 0.4)", // --color-brass-pale
+              color: style.connector,
               lineWidth: 2
             });
             drawingUtils.drawLandmarks(landmarks, {
-              color: "rgba(74, 122, 107, 0.8)", // --color-plate-accent
+              color: style.landmark,
               lineWidth: 1,
               radius: 3
             });
           }
         }
-
-        const mapped = gestureMapper.process(results);
         
         if (mapped.noteOnEvent && mapped.pitch !== undefined) {
             currentNoteFreq = audioEngine.mtof(mapped.pitch);
@@ -160,6 +184,7 @@
         bind:value={cutoffNorm} 
         bind:isDragging={isDraggingCutoff}
         readout={formatCutoff(cutoffNorm)}
+        gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
       />
       <RotaryDial 
         label="Reson." 
@@ -172,6 +197,7 @@
         bind:value={reverbNorm} 
         bind:isDragging={isDraggingReverb}
         readout={formatPct(reverbNorm)}
+        gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
       />
     </div>
 
