@@ -203,3 +203,66 @@ impl Voice {
         filtered * env_val * self.velocity * 0.2 // Volume scaling
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_envelope_reaches_zero() {
+        let sample_rate = 44100.0;
+        let mut env = AdsREnvelope::new(sample_rate);
+        
+        env.note_on();
+        // attack + decay is 110ms. Run for 200ms
+        for _ in 0..8820 {
+            env.process();
+        }
+        
+        env.note_off();
+        // release is 200ms. Run for 300ms
+        for _ in 0..13230 {
+            env.process();
+        }
+        
+        assert_eq!(env.process(), 0.0);
+        assert!(!env.is_active());
+    }
+
+    #[test]
+    fn test_filter_stability() {
+        let sample_rate = 44100.0;
+        let mut filter = SvfFilter::new(sample_rate);
+        filter.set_params(20000.0, 1.0); // max cutoff, max resonance
+        
+        let mut max_val = 0.0f32;
+        // feed it a step impulse
+        for i in 0..1000 {
+            let input = if i == 0 { 1.0 } else { 0.0 };
+            let out = filter.process(input);
+            if out.abs() > max_val {
+                max_val = out.abs();
+            }
+        }
+        // Should not explode to infinity
+        assert!(max_val < 100.0);
+    }
+
+    #[test]
+    fn test_voice_output_range() {
+        let sample_rate = 44100.0;
+        let mut voice = Voice::new(sample_rate);
+        voice.note_on(440.0, 1.0);
+        
+        let mut max_out = 0.0f32;
+        for _ in 0..44100 {
+            let out = voice.process().abs();
+            if out > max_out {
+                max_out = out;
+            }
+        }
+        
+        // Voice is scaled by 0.2, so it shouldn't exceed that too much
+        assert!(max_out <= 0.25);
+    }
+}

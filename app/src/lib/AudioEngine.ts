@@ -26,8 +26,17 @@ export class AudioEngine {
             this.analyserNode.fftSize = 2048;
             this.timeDomainData = new Float32Array(this.analyserNode.fftSize);
 
+            // Add master limiter for safety against high resonance
+            const limiter = this.audioCtx.createDynamicsCompressor();
+            limiter.threshold.setValueAtTime(-3, this.audioCtx.currentTime); // -3dB threshold
+            limiter.knee.setValueAtTime(0, this.audioCtx.currentTime); // Hard knee
+            limiter.ratio.setValueAtTime(20, this.audioCtx.currentTime); // High ratio for limiting
+            limiter.attack.setValueAtTime(0.005, this.audioCtx.currentTime); // Fast attack
+            limiter.release.setValueAtTime(0.05, this.audioCtx.currentTime); // Fast release
+
             this.synthWorkletNode.connect(this.analyserNode);
-            this.analyserNode.connect(this.audioCtx.destination);
+            this.analyserNode.connect(limiter);
+            limiter.connect(this.audioCtx.destination);
             
             // Load WASM from the public directory
             const response = await fetch('/pkg/synth_core_bg.wasm?v=8');

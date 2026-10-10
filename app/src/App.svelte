@@ -17,10 +17,21 @@
   let gestureMapper = new GestureMapper();
 
   let isInitializing = false;
+  let loadingState = '';
   let initError = '';
   let fallbackMode = false;
   let isAudioReady = false;
   let hasStarted = false;
+  let showHelp = false;
+
+  let compatibilityChecks = {
+    webgl2: false,
+    wasm: false,
+    audioWorklet: false,
+    getUserMedia: false,
+    checked: false
+  };
+  $: isCompatible = compatibilityChecks.checked && compatibilityChecks.webgl2 && compatibilityChecks.wasm && compatibilityChecks.audioWorklet;
 
   let activeHands = { left: false, right: false };
   let leftHandIndex: number | null = null;
@@ -71,13 +82,45 @@
   }
 
   onMount(() => {
+    // Capability checks
+    compatibilityChecks = {
+      webgl2: !!document.createElement('canvas').getContext('webgl2'),
+      wasm: typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function',
+      audioWorklet: typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype,
+      getUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+      checked: true
+    };
+
     canvasCtx = canvasEl.getContext('2d')!;
     drawingUtils = new DrawingUtils(canvasCtx);
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   });
 
   onDestroy(() => {
     handTracker.stopCamera();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    // Release audio resources
+    if (audioEngine.audioCtx) {
+      audioEngine.audioCtx.close();
+    }
   });
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      if (isAudioReady) {
+        audioEngine.noteOff(currentNoteFreq);
+        currentNoteFreq = 0;
+        audioEngine.audioCtx?.suspend();
+      }
+      handTracker.pauseCamera();
+    } else {
+      if (isAudioReady) {
+        audioEngine.audioCtx?.resume();
+      }
+      handTracker.resumeCamera();
+    }
+  }
 
   async function startApp() {
     isInitializing = true;
@@ -85,15 +128,18 @@
     hasStarted = true;
     
     try {
+      loadingState = 'TUNING PLATE (AUDIO ENGINE)...';
       await audioEngine.init(() => {
         isAudioReady = true;
       });
       audioEngine.resume();
       
+      loadingState = 'LOADING HAND MODEL...';
       await handTracker.init();
 
+      loadingState = 'REQUESTING CAMERA ACCESS...';
       await handTracker.startCamera(videoEl, (results) => {
-        if (!canvasEl || !videoEl) return;
+        if (!canvasEl || !videoEl || document.hidden) return;
         
         canvasEl.width = videoEl.videoWidth;
         canvasEl.height = videoEl.videoHeight;
@@ -147,19 +193,29 @@
 
     } catch (e: any) {
       console.error(e);
-      initError = e.message || 'Failed to initialize';
+      let errorMsg = e.message || 'Failed to initialize';
+      if (e.name === 'NotAllowedError' || e.name === 'NotFoundError' || e.name === 'NotReadableError') {
+        errorMsg = 'CAMERA ACCESS DENIED OR UNAVAILABLE.';
+      }
+      initError = errorMsg;
       fallbackMode = true;
       
       if (!isAudioReady) {
           try {
+              loadingState = 'RE-INITIALIZING AUDIO FOR FALLBACK...';
               await audioEngine.init(() => { isAudioReady = true; });
               audioEngine.resume();
           } catch(err) {
               console.error("Audio init failed for fallback", err);
+              initError += ' AUDIO SYSTEM FAILED.';
           }
       }
     } finally {
       isInitializing = false;
+      loadingState = '';
+      if (!fallbackMode) {
+          showHelp = true;
+      }
     }
   }
 </script>
@@ -201,24 +257,63 @@
       />
     </div>
 
-    {#if !hasStarted}
+    {#if compatibilityChecks.checked && !isCompatible}
       <div class="power-overlay">
-        <button class="power-button" on:click={startApp}>
-          <span class="power-text">SYSTEM INITIATE</span>
-        </button>
+        <div class="error-panel">
+          <h3>SYSTEM INCOMPATIBLE</h3>
+          <p>Your browser is missing required capabilities:</p>
+          <ul style="text-align: left;">
+            <li>WebAssembly: {compatibilityChecks.wasm ? 'OK' : 'MISSING'}</li>
+            <li>AudioWorklet: {compatibilityChecks.audioWorklet ? 'OK' : 'MISSING'}</li>
+            <li>WebGL2: {compatibilityChecks.webgl2 ? 'OK' : 'MISSING'}</li>
+          </ul>
+        </div>
       </div>
-    {/if}
+    {:else}
+      {#if !hasStarted}
+        <div class="power-overlay">
+          <button class="power-button" on:click={startApp}>
+            <span class="power-text">SYSTEM INITIATE</span>
+          </button>
+        </div>
+      {/if}
 
-    {#if isInitializing}
-      <div class="power-overlay loading">
-        <div class="readout-text">CALIBRATING SENSORS...</div>
-      </div>
-    {/if}
-    
-    {#if fallbackMode && isAudioReady}
-      <div class="fallback-warning">
-        OPTICAL SENSOR OFFLINE. MANUAL OVERRIDE ENGAGED.
-      </div>
+      {#if isInitializing}
+        <div class="power-overlay loading">
+          <div class="readout-text">{loadingState}</div>
+        </div>
+      {/if}
+      
+      {#if fallbackMode && isAudioReady}
+        <div class="fallback-warning">
+          OPTICAL SENSOR OFFLINE. MANUAL OVERRIDE ENGAGED.
+          <br/><span style="font-size: 0.7em">{initError}</span>
+        </div>
+      {/if}
+
+      {#if showHelp}
+        <div class="power-overlay">
+          <div class="help-panel">
+            <h3>HOW TO PLAY</h3>
+            <div class="help-grid">
+              <div class="help-col">
+                <h4 style="color: var(--color-plate-accent)">LEFT HAND</h4>
+                <p><strong>Pinch (Index + Thumb):</strong> Trigger Note</p>
+                <p><strong>Y Axis (Up/Down):</strong> Pitch (C3 to C5)</p>
+              </div>
+              <div class="help-col">
+                <h4 style="color: var(--color-brass-highlight)">RIGHT HAND</h4>
+                <p><strong>X Axis (Left/Right):</strong> Reverb</p>
+                <p><strong>Y Axis (Up/Down):</strong> Filter Cutoff</p>
+                <p><strong>Note:</strong> Right hand only active while left hand is pinching.</p>
+              </div>
+            </div>
+            <button class="power-button" style="margin-top: 2rem;" on:click={() => showHelp = false}>
+              <span class="power-text">ACKNOWLEDGE</span>
+            </button>
+          </div>
+        </div>
+      {/if}
     {/if}
   </div>
 </main>
@@ -375,6 +470,70 @@
     letter-spacing: 1px;
     border-radius: 2px;
     z-index: 10;
+    max-width: 300px;
+  }
+
+  .error-panel {
+    background: var(--color-base);
+    border: 2px solid var(--color-brass-highlight);
+    color: var(--color-brass-pale);
+    padding: 2rem;
+    font-family: var(--font-ui);
+    letter-spacing: 2px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+  .error-panel h3 {
+    margin-top: 0;
+    color: var(--color-brass-highlight);
+  }
+  .error-panel ul {
+    list-style: none;
+    padding: 0;
+  }
+  .error-panel li {
+    margin: 0.5rem 0;
+  }
+
+  .help-panel {
+    background: rgba(18, 16, 13, 0.95);
+    border: 2px solid var(--color-brass-pale);
+    color: var(--color-ivory);
+    padding: 3rem;
+    font-family: var(--font-ui);
+    max-width: 600px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8), inset 0 0 0 1px var(--color-brass-highlight);
+    text-align: center;
+    border-radius: 4px;
+  }
+  .help-panel h3 {
+    margin-top: 0;
+    color: var(--color-brass-highlight);
+    letter-spacing: 4px;
+    font-size: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .help-grid {
+    display: flex;
+    gap: 2rem;
+    text-align: left;
+  }
+  .help-col {
+    flex: 1;
+    background: rgba(0,0,0,0.3);
+    padding: 1.5rem;
+    border: 1px solid var(--color-brass-panel);
+  }
+  .help-col h4 {
+    margin-top: 0;
+    letter-spacing: 2px;
+    border-bottom: 1px solid var(--color-brass-panel);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .help-col p {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin: 0.5rem 0;
   }
 
   /* Animations */

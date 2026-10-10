@@ -75,6 +75,17 @@ export class HandTracker {
         }
     }
 
+    pauseCamera() {
+        this.isRunning = false;
+    }
+
+    resumeCamera() {
+        if (!this.isRunning && this.videoElement && this.videoElement.srcObject) {
+            this.isRunning = true;
+            this.predictWebcam();
+        }
+    }
+
     private predictWebcam = () => {
         if (!this.isRunning || !this.videoElement || !this.handLandmarker) return;
 
