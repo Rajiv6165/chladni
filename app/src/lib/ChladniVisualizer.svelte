@@ -113,9 +113,13 @@
     return shader;
   }
 
+  export function getCanvas(): HTMLCanvasElement | null {
+    return canvasEl;
+  }
+
   function initWebGL() {
     if (!canvasEl) return;
-    gl = canvasEl.getContext('webgl2');
+    gl = canvasEl.getContext('webgl2', { preserveDrawingBuffer: true });
     if (!gl) {
       console.error('WebGL2 not supported');
       return;

@@ -49,7 +49,9 @@ export class GestureMapper {
         reverb?: number, 
         noteOnEvent?: boolean, 
         noteOffEvent?: boolean,
-        activeHands: { left: boolean, right: boolean }
+        activeHands: { left: boolean, right: boolean },
+        leftHandIndex?: number | null,
+        rightHandIndex?: number | null
     } {
         let activeHands = { left: false, right: false };
 

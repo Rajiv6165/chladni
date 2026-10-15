@@ -6,6 +6,9 @@
   import { DrawingUtils, HandLandmarker } from '@mediapipe/tasks-vision';
   import ChladniVisualizer from './lib/ChladniVisualizer.svelte';
   import RotaryDial from './lib/RotaryDial.svelte';
+  import RecordControl from './lib/RecordControl.svelte';
+  import TakePanel from './lib/TakePanel.svelte';
+  import { MediaRecorderController, type TakeResult, type RecordingState } from './lib/MediaRecorderController';
   import './app.css';
 
   let videoEl: HTMLVideoElement;
@@ -58,6 +61,18 @@
 
   let currentNoteFreq = 0;
 
+  // Session recording state
+  let visualizerComponent: ChladniVisualizer;
+  const recorder = new MediaRecorderController();
+
+  let recState: RecordingState = 'idle';
+  let recElapsed = 0;
+  let recIsWarning = false;
+  let recRemaining = 180;
+  let recFormatLabel = MediaRecorderController.getBestSupportedMimeType().label;
+  let includeInset = false;
+  let currentTake: TakeResult | null = null;
+
   $: cutoffActual = 100 * Math.pow(10, 2 * cutoffNorm); // 100 to 10000 Hz
   $: {
     if (isAudioReady) audioEngine.setCutoff(cutoffActual);
@@ -94,10 +109,26 @@
     canvasCtx = canvasEl.getContext('2d')!;
     drawingUtils = new DrawingUtils(canvasCtx);
     
+    // Wire up session recorder
+    recorder.onStateChange = (st) => { recState = st; };
+    recorder.onTick = (elapsed, isWarn, remaining) => {
+      recElapsed = elapsed;
+      recIsWarning = isWarn;
+      recRemaining = remaining;
+    };
+    recorder.onTakeReady = (take) => { currentTake = take; };
+    recorder.onError = (err) => { console.error('Recording error:', err); };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
   });
 
   onDestroy(() => {
+    if (recorder.state === 'recording') {
+      recorder.stopRecording();
+    }
+    if (currentTake) {
+      MediaRecorderController.disposeTake(currentTake);
+    }
     handTracker.stopCamera();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     // Release audio resources
@@ -108,6 +139,9 @@
 
   function handleVisibilityChange() {
     if (document.hidden) {
+      if (recorder.state === 'recording') {
+        recorder.stopRecording('backgrounded');
+      }
       if (isAudioReady) {
         audioEngine.noteOff(currentNoteFreq);
         currentNoteFreq = 0;
@@ -119,6 +153,17 @@
         audioEngine.audioCtx?.resume();
       }
       handTracker.resumeCamera();
+    }
+  }
+
+  async function handleToggleRecord() {
+    if (recState === 'idle') {
+      const plateCanvas = visualizerComponent?.getCanvas();
+      if (!plateCanvas) return;
+      recorder.includeInsetAndFrame = includeInset;
+      await recorder.startRecording(plateCanvas, videoEl, canvasEl);
+    } else if (recState === 'recording') {
+      await recorder.stopRecording('user_stopped');
     }
   }
 
@@ -224,7 +269,7 @@
   <div class="brass-frame">
     
     <div class="plate-area">
-      <ChladniVisualizer />
+      <ChladniVisualizer bind:this={visualizerComponent} />
     </div>
 
     <!-- Oscilloscope-style webcam inset -->
@@ -255,7 +300,21 @@
         readout={formatPct(reverbNorm)}
         gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
       />
+      <RecordControl 
+        state={recState}
+        elapsedSeconds={recElapsed}
+        isWarning={recIsWarning}
+        remainingSeconds={recRemaining}
+        formatLabel={recFormatLabel}
+        bind:includeInsetAndFrame={includeInset}
+        {isAudioReady}
+        on:toggleRecord={handleToggleRecord}
+      />
     </div>
+
+    {#if currentTake}
+      <TakePanel take={currentTake} on:discard={() => { currentTake = null; }} />
+    {/if}
 
     {#if compatibilityChecks.checked && !isCompatible}
       <div class="power-overlay">
@@ -400,8 +459,8 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 4rem;
-    padding: 0 2rem;
+    gap: 2.5rem;
+    padding: 0 1.5rem;
     box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);
     
     opacity: 0;
