@@ -45,7 +45,7 @@ jobs:
       run: npm ci
       working-directory: app
 
-    - name: Test WAV Encoder
+    - name: Run Frontend Unit Tests (Vitest)
       run: npm test
       working-directory: app
 

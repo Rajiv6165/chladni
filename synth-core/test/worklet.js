@@ -1,5 +1,5 @@
 import './polyfill.js';
-import init, { WasmSynth } from '../pkg/synth_core.js?v=9';
+import init, { WasmSynth } from '../pkg/synth_core.js?v=10';
 
 class SynthWorklet extends AudioWorkletProcessor {
     constructor() {
@@ -43,6 +43,38 @@ class SynthWorklet extends AudioWorkletProcessor {
             case 'set_reverb':
                 this.synth.set_reverb_mix(data.value);
                 break;
+            case 'set_waveform':
+                this.synth.set_waveform(data.value);
+                break;
+            case 'set_adsr':
+                this.synth.set_adsr(data.attack, data.decay, data.sustain, data.release);
+                break;
+            case 'set_delay_time':
+                this.synth.set_delay_time(data.value);
+                break;
+            case 'set_delay_feedback':
+                this.synth.set_delay_feedback(data.value);
+                break;
+            case 'set_detune':
+                this.synth.set_detune(data.value);
+                break;
+            case 'set_master_gain':
+                this.synth.set_master_gain(data.value);
+                break;
+            case 'apply_sound_preset': {
+                const s = data.sound;
+                if (!s) break;
+                if (typeof s.waveformNumber === 'number') this.synth.set_waveform(s.waveformNumber);
+                if (typeof s.attack === 'number') this.synth.set_adsr(s.attack, s.decay, s.sustain, s.release);
+                if (typeof s.filterCutoff === 'number') this.synth.set_filter_cutoff(s.filterCutoff);
+                if (typeof s.filterResonance === 'number') this.synth.set_filter_resonance(s.filterResonance);
+                if (typeof s.reverbMix === 'number') this.synth.set_reverb_mix(s.reverbMix);
+                if (typeof s.delayTime === 'number') this.synth.set_delay_time(s.delayTime);
+                if (typeof s.delayFeedback === 'number') this.synth.set_delay_feedback(s.delayFeedback);
+                if (typeof s.detune === 'number') this.synth.set_detune(s.detune);
+                if (typeof s.masterGain === 'number') this.synth.set_master_gain(s.masterGain);
+                break;
+            }
         }
     }
 

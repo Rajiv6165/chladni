@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { audioEngine } from './AudioEngine';
+  import type { VisualPreset, ModeMappingType } from './preset';
 
   let canvasEl: HTMLCanvasElement;
   let gl: WebGL2RenderingContext | null = null;
@@ -13,6 +14,18 @@
   let u_amplitude: WebGLUniformLocation | null = null;
   let u_n: WebGLUniformLocation | null = null;
   let u_m: WebGLUniformLocation | null = null;
+  let u_lineSharpness: WebGLUniformLocation | null = null;
+  let u_grainAmount: WebGLUniformLocation | null = null;
+  let u_tint: WebGLUniformLocation | null = null;
+
+  // Visual parameter state with smoothing to avoid jarring graphical jumps
+  let currentSharpness = 1.5;
+  let targetSharpness = 1.5;
+  let currentGrain = 0.5;
+  let targetGrain = 0.5;
+  let currentTint = { r: 0.29, g: 0.48, b: 0.42 };
+  let targetTint = { r: 0.29, g: 0.48, b: 0.42 };
+  let activeModeMapping: ModeMappingType = 'harmonic';
 
   const vertexShaderSource = `#version 300 es
     in vec2 a_position;
@@ -29,6 +42,9 @@
     uniform float u_amplitude;
     uniform float u_n;
     uniform float u_m;
+    uniform float u_lineSharpness;
+    uniform float u_grainAmount;
+    uniform vec3 u_tint;
 
     out vec4 fragColor;
 
@@ -72,20 +88,21 @@
 
         // The sand settles where the vibration is 0 (nodal lines).
         // Brightness is high when abs(chladni) is close to 0.
-        // We make the line thickness dependent on amplitude (louder = wider dispersion)
-        float thickness = 0.05 + u_amplitude * 0.1;
+        // Line thickness is shaped by lineSharpness preset parameter
+        float sharpness = max(0.2, u_lineSharpness);
+        float thickness = (0.05 + u_amplitude * 0.1) / sharpness;
         float sand = smoothstep(thickness, 0.0, abs(chladni));
         
         // Fade overall sand visibility based on amplitude so it dims when quiet
         sand *= smoothstep(0.0, 0.1, u_amplitude) * 0.8 + 0.2;
 
-        // Add fine grain to the sand for physical feel
+        // Fine grain in the sand modulated by grainAmount
         float grain = random(evalPos * 100.0 + u_time) * 0.5 + 0.5;
-        sand *= mix(1.0, grain, min(u_amplitude * 5.0, 1.0));
+        sand *= mix(1.0, grain, min(u_amplitude * 5.0, 1.0) * u_grainAmount);
 
-        // Palette
+        // Design-system brass / ivory / patina palette
         vec3 bgColor = vec3(0.07, 0.06, 0.05);   // #12100D
-        vec3 sandColor = vec3(0.29, 0.48, 0.42); // #4A7A6B
+        vec3 sandColor = u_tint;                 // Preset-specific acoustic tint
         vec3 rimColor = vec3(0.54, 0.35, 0.17);  // #8B5A2B
         
         // Mix sand onto background
@@ -115,6 +132,13 @@
 
   export function getCanvas(): HTMLCanvasElement | null {
     return canvasEl;
+  }
+
+  export function setVisualPreset(visual: VisualPreset) {
+    targetSharpness = visual.lineSharpness;
+    targetGrain = visual.grainAmount;
+    targetTint = { ...visual.tint };
+    activeModeMapping = visual.modeMapping;
   }
 
   function initWebGL() {
@@ -164,32 +188,72 @@
     u_amplitude = gl.getUniformLocation(program, 'u_amplitude');
     u_n = gl.getUniformLocation(program, 'u_n');
     u_m = gl.getUniformLocation(program, 'u_m');
+    u_lineSharpness = gl.getUniformLocation(program, 'u_lineSharpness');
+    u_grainAmount = gl.getUniformLocation(program, 'u_grainAmount');
+    u_tint = gl.getUniformLocation(program, 'u_tint');
   }
 
-  // Map log-frequency to an interpolated array of predefined integer pairs
-  function mapFreqToModes(freq: number) {
+  // Predefined modal pairs for various plate geometries
+  const MODE_SERIES: Record<ModeMappingType, Array<{ n: number, m: number }>> = {
+    harmonic: [
+      { n: 1, m: 2 },
+      { n: 2, m: 3 },
+      { n: 3, m: 2 },
+      { n: 3, m: 4 },
+      { n: 4, m: 5 },
+      { n: 5, m: 3 },
+      { n: 5, m: 6 }
+    ],
+    crystalline: [
+      { n: 2, m: 4 },
+      { n: 3, m: 5 },
+      { n: 4, m: 6 },
+      { n: 5, m: 7 },
+      { n: 6, m: 4 },
+      { n: 6, m: 8 }
+    ],
+    dense: [
+      { n: 3, m: 3 },
+      { n: 4, m: 3 },
+      { n: 4, m: 4 },
+      { n: 5, m: 4 },
+      { n: 5, m: 5 },
+      { n: 6, m: 6 }
+    ],
+    radial: [
+      { n: 1, m: 1 },
+      { n: 2, m: 1 },
+      { n: 2, m: 2 },
+      { n: 3, m: 1 },
+      { n: 3, m: 2 },
+      { n: 4, m: 2 }
+    ],
+    concentric: [
+      { n: 1, m: 3 },
+      { n: 2, m: 4 },
+      { n: 3, m: 5 },
+      { n: 4, m: 2 },
+      { n: 5, m: 3 },
+      { n: 6, m: 2 }
+    ]
+  };
+
+  // Map log-frequency to interpolated modal pairs based on active style
+  function mapFreqToModes(freq: number, modeStyle: ModeMappingType) {
     if (freq < 10) return { n: 1, m: 1 };
     
-    // Clamp freq to our musical range (e.g. MIDI 48 to 84 -> ~130Hz to ~1046Hz)
-    let f = Math.max(130, Math.min(1046, freq));
-    let t = Math.log10(f / 130) / Math.log10(1046 / 130);
+    // Clamp freq to our musical range
+    let f = Math.max(65, Math.min(1046, freq));
+    let t = Math.log10(f / 65) / Math.log10(1046 / 65);
     
-    const modePairs = [
-        {n: 1, m: 2},
-        {n: 2, m: 3},
-        {n: 3, m: 2},
-        {n: 3, m: 4},
-        {n: 4, m: 5},
-        {n: 5, m: 3},
-        {n: 5, m: 6}
-    ];
+    const modePairs = MODE_SERIES[modeStyle] || MODE_SERIES.harmonic;
     
     let index = t * (modePairs.length - 1);
     let i0 = Math.floor(index);
     let i1 = Math.min(i0 + 1, modePairs.length - 1);
     let frac = index - i0;
     
-    // Smoothstep the fraction so it "snaps" to integer modes for most of the range
+    // Smoothstep fraction for snappy lock to integer modes
     let smoothFrac = frac * frac * (3 - 2 * frac); 
     
     let n = modePairs[i0].n * (1 - smoothFrac) + modePairs[i1].n * smoothFrac;
@@ -220,16 +284,26 @@
 
     gl.useProgram(program);
 
+    // Smooth uniform transitions
+    currentSharpness += (targetSharpness - currentSharpness) * 0.05;
+    currentGrain += (targetGrain - currentGrain) * 0.05;
+    currentTint.r += (targetTint.r - currentTint.r) * 0.05;
+    currentTint.g += (targetTint.g - currentTint.g) * 0.05;
+    currentTint.b += (targetTint.b - currentTint.b) * 0.05;
+
     // Get audio data
     const { rms, freq } = audioEngine.getAnalysis();
     
-    const modes = mapFreqToModes(freq);
+    const modes = mapFreqToModes(freq, activeModeMapping);
 
     gl.uniform2f(u_resolution, canvasEl.width, canvasEl.height);
     gl.uniform1f(u_time, time * 0.001); // time in seconds
     gl.uniform1f(u_amplitude, rms);
     gl.uniform1f(u_n, modes.n);
     gl.uniform1f(u_m, modes.m);
+    gl.uniform1f(u_lineSharpness, currentSharpness);
+    gl.uniform1f(u_grainAmount, currentGrain);
+    gl.uniform3f(u_tint, currentTint.r, currentTint.g, currentTint.b);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 

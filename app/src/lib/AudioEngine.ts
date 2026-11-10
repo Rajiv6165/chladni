@@ -1,4 +1,5 @@
 import { encodeWav } from './wavEncoder';
+import { WAVEFORM_MAP, type SoundPreset, type WaveformType } from './preset';
 
 export interface RecordedAudioTake {
     wavBlob: Blob;
@@ -32,9 +33,11 @@ export class AudioEngine {
         this.audioCtx = new AudioContext();
 
         try {
-            // Load synth and recorder worklets from the public directory
-            await this.audioCtx.audioWorklet.addModule('/worklet.js?v=9');
-            await this.audioCtx.audioWorklet.addModule('/recorder-worklet.js?v=1');
+            // Load synth and recorder worklets relative to current location for GitHub Pages compatibility
+            const workletUrl = new URL('worklet.js?v=10', window.location.href).href;
+            const recorderWorkletUrl = new URL('recorder-worklet.js?v=1', window.location.href).href;
+            await this.audioCtx.audioWorklet.addModule(workletUrl);
+            await this.audioCtx.audioWorklet.addModule(recorderWorkletUrl);
             
             this.synthWorkletNode = new AudioWorkletNode(this.audioCtx, 'synth-worklet');
             this.recorderWorkletNode = new AudioWorkletNode(this.audioCtx, 'recorder-worklet');
@@ -86,8 +89,9 @@ export class AudioEngine {
                 }
             };
 
-            // Load WASM from the public directory
-            const response = await fetch('/pkg/synth_core_bg.wasm?v=8');
+            // Load WASM from location relative to current page for GitHub Pages compatibility
+            const wasmUrl = new URL('pkg/synth_core_bg.wasm?v=10', window.location.href).href;
+            const response = await fetch(wasmUrl);
             const buffer = await response.arrayBuffer();
             const wasmModule = await WebAssembly.compile(buffer);
 
@@ -210,6 +214,49 @@ export class AudioEngine {
     setReverb(value: number) {
         if (!this.synthWorkletNode || !this.isReady) return;
         this.synthWorkletNode.port.postMessage({ type: 'set_reverb', value });
+    }
+
+    setWaveform(waveform: WaveformType | number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        const val = typeof waveform === 'number' ? waveform : WAVEFORM_MAP[waveform] ?? 0;
+        this.synthWorkletNode.port.postMessage({ type: 'set_waveform', value: val });
+    }
+
+    setAdsr(attack: number, decay: number, sustain: number, release: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_adsr', attack, decay, sustain, release });
+    }
+
+    setDelayTime(value: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_delay_time', value });
+    }
+
+    setDelayFeedback(value: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_delay_feedback', value });
+    }
+
+    setDetune(value: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_detune', value });
+    }
+
+    setMasterGain(value: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_master_gain', value });
+    }
+
+    applySoundPreset(sound: SoundPreset) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        const waveformNumber = WAVEFORM_MAP[sound.waveform] ?? 0;
+        this.synthWorkletNode.port.postMessage({
+            type: 'apply_sound_preset',
+            sound: {
+                ...sound,
+                waveformNumber
+            }
+        });
     }
 
     getAnalysis(): { rms: number, freq: number } {

@@ -1,5 +1,6 @@
 import { EMAFilter } from './filters';
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import type { GesturePreset } from './preset';
 
 export class GestureMapper {
     // Smoothed values for Left Hand (Pitch, Gate)
@@ -14,11 +15,22 @@ export class GestureMapper {
     private pinchThresholdOn = 0.05;
     private pinchThresholdOff = 0.08;
 
+    public baseMidiNote = 48;
+    public pitchRangeSemitones = 24;
+
     // Tracking state for robust identity across frames
     private lastLeftHandCentroid: { x: number, y: number } | null = null;
     private lastRightHandCentroid: { x: number, y: number } | null = null;
 
     constructor() {}
+
+    setGesturePreset(preset: GesturePreset) {
+        this.baseMidiNote = (preset.baseOctave + 1) * 12;
+        this.pitchRangeSemitones = preset.pitchRangeOctaves * 12;
+        this.pitchEma.alpha = preset.smoothing;
+        this.pinchThresholdOn = preset.pinchThreshold;
+        this.pinchThresholdOff = preset.pinchThreshold + 0.03;
+    }
 
     reset() {
         this.pitchEma.reset();
@@ -141,7 +153,7 @@ export class GestureMapper {
             // 1. Pitch -> Map Y of index tip (inverted, 0 is top, 1 is bottom)
             const yRaw = Math.max(0.2, Math.min(0.8, indexTip.y));
             const yNorm = 1.0 - ((yRaw - 0.2) / 0.6); 
-            const targetPitch = 48 + (yNorm * 24); // 48 to 72
+            const targetPitch = this.baseMidiNote + (yNorm * this.pitchRangeSemitones);
             outPitch = this.pitchEma.update(targetPitch);
 
             // 2. Pinch (Gate) -> Distance between thumb tip and index tip

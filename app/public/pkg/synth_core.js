@@ -42,6 +42,33 @@ export class WasmSynth {
         wasm.wasmsynth_process(this.__wbg_ptr, ptr0, len0, output_buffer);
     }
     /**
+     * @param {number} attack_sec
+     * @param {number} decay_sec
+     * @param {number} sustain
+     * @param {number} release_sec
+     */
+    set_adsr(attack_sec, decay_sec, sustain, release_sec) {
+        wasm.wasmsynth_set_adsr(this.__wbg_ptr, attack_sec, decay_sec, sustain, release_sec);
+    }
+    /**
+     * @param {number} feedback
+     */
+    set_delay_feedback(feedback) {
+        wasm.wasmsynth_set_delay_feedback(this.__wbg_ptr, feedback);
+    }
+    /**
+     * @param {number} delay_ms
+     */
+    set_delay_time(delay_ms) {
+        wasm.wasmsynth_set_delay_time(this.__wbg_ptr, delay_ms);
+    }
+    /**
+     * @param {number} cents
+     */
+    set_detune(cents) {
+        wasm.wasmsynth_set_detune(this.__wbg_ptr, cents);
+    }
+    /**
      * @param {number} cutoff
      */
     set_filter_cutoff(cutoff) {
@@ -54,10 +81,22 @@ export class WasmSynth {
         wasm.wasmsynth_set_filter_resonance(this.__wbg_ptr, resonance);
     }
     /**
+     * @param {number} gain
+     */
+    set_master_gain(gain) {
+        wasm.wasmsynth_set_master_gain(this.__wbg_ptr, gain);
+    }
+    /**
      * @param {number} mix
      */
     set_reverb_mix(mix) {
         wasm.wasmsynth_set_reverb_mix(this.__wbg_ptr, mix);
+    }
+    /**
+     * @param {number} waveform
+     */
+    set_waveform(waveform) {
+        wasm.wasmsynth_set_waveform(this.__wbg_ptr, waveform);
     }
 }
 if (Symbol.dispose) WasmSynth.prototype[Symbol.dispose] = WasmSynth.prototype.free;

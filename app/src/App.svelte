@@ -8,6 +8,8 @@
   import RotaryDial from './lib/RotaryDial.svelte';
   import RecordControl from './lib/RecordControl.svelte';
   import TakePanel from './lib/TakePanel.svelte';
+  import PlateSelector from './lib/PlateSelector.svelte';
+  import { FACTORY_PLATES, type PlatePreset } from './lib/preset';
   import { MediaRecorderController, type TakeResult, type RecordingState } from './lib/MediaRecorderController';
   import './app.css';
 
@@ -49,10 +51,16 @@
       landmark: "rgba(232, 220, 196, 0.8)",  // --color-ivory
   };
 
+  // Active Plate Preset State
+  let activePlate: PlatePreset = FACTORY_PLATES[0];
+  let isPlateModified = false;
+  let isApplyingPlate = false;
+  let plateSelectorComponent: PlateSelector;
+
   // Normalized dial values (0.0 to 1.0)
-  let cutoffNorm = 0.5;
-  let resonanceNorm = 0.5;
-  let reverbNorm = 0.5;
+  let cutoffNorm = Math.log10(FACTORY_PLATES[0].sound.filterCutoff / 100) / 2;
+  let resonanceNorm = FACTORY_PLATES[0].sound.filterResonance;
+  let reverbNorm = FACTORY_PLATES[0].sound.reverbMix;
 
   // Dragging state to prevent gesture override
   let isDraggingCutoff = false;
@@ -76,14 +84,81 @@
   $: cutoffActual = 100 * Math.pow(10, 2 * cutoffNorm); // 100 to 10000 Hz
   $: {
     if (isAudioReady) audioEngine.setCutoff(cutoffActual);
+    if (!isApplyingPlate && (isDraggingCutoff || activePlate)) {
+      checkModified();
+    }
   }
   
   $: {
     if (isAudioReady) audioEngine.setResonance(resonanceNorm);
+    if (!isApplyingPlate && (isDraggingResonance || activePlate)) {
+      checkModified();
+    }
   }
   
   $: {
     if (isAudioReady) audioEngine.setReverb(reverbNorm);
+    if (!isApplyingPlate && (isDraggingReverb || activePlate)) {
+      checkModified();
+    }
+  }
+
+  function checkModified() {
+    if (!activePlate || isApplyingPlate) return;
+    const cutoffDiff = Math.abs(cutoffActual - activePlate.sound.filterCutoff);
+    const resDiff = Math.abs(resonanceNorm - activePlate.sound.filterResonance);
+    const revDiff = Math.abs(reverbNorm - activePlate.sound.reverbMix);
+    if (cutoffDiff > 25 || resDiff > 0.03 || revDiff > 0.03) {
+      isPlateModified = true;
+    }
+  }
+
+  function applyLoadedPlate(plate: PlatePreset) {
+    isApplyingPlate = true;
+    cutoffNorm = Math.log10(plate.sound.filterCutoff / 100) / 2;
+    resonanceNorm = plate.sound.filterResonance;
+    reverbNorm = plate.sound.reverbMix;
+
+    if (isAudioReady) {
+      audioEngine.applySoundPreset(plate.sound);
+    }
+    visualizerComponent?.setVisualPreset(plate.visual);
+    gestureMapper.setGesturePreset(plate.gesture);
+
+    isPlateModified = false;
+    setTimeout(() => {
+      isApplyingPlate = false;
+    }, 60);
+  }
+
+  function handleSelectPlate(e: CustomEvent<PlatePreset>) {
+    activePlate = e.detail;
+    applyLoadedPlate(activePlate);
+  }
+
+  function handleRevertPlate() {
+    applyLoadedPlate(activePlate);
+  }
+
+  function handleSaveAsPlate(e: CustomEvent<{ name: string; description: string }>) {
+    const newPlate: PlatePreset = {
+      version: 1,
+      id: `user-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: e.detail.name,
+      description: e.detail.description,
+      category: 'user',
+      sound: {
+        ...activePlate.sound,
+        filterCutoff: cutoffActual,
+        filterResonance: resonanceNorm,
+        reverbMix: reverbNorm,
+      },
+      visual: { ...activePlate.visual },
+      gesture: { ...activePlate.gesture },
+    };
+    plateSelectorComponent?.addSavedUserPlate(newPlate);
+    activePlate = newPlate;
+    isPlateModified = false;
   }
 
   function formatCutoff(val: number) {
@@ -176,6 +251,7 @@
       loadingState = 'TUNING PLATE (AUDIO ENGINE)...';
       await audioEngine.init(() => {
         isAudioReady = true;
+        applyLoadedPlate(activePlate);
       });
       audioEngine.resume();
       
@@ -248,7 +324,10 @@
       if (!isAudioReady) {
           try {
               loadingState = 'RE-INITIALIZING AUDIO FOR FALLBACK...';
-              await audioEngine.init(() => { isAudioReady = true; });
+              await audioEngine.init(() => {
+                isAudioReady = true;
+                applyLoadedPlate(activePlate);
+              });
               audioEngine.resume();
           } catch(err) {
               console.error("Audio init failed for fallback", err);
@@ -278,6 +357,16 @@
       <video bind:this={videoEl} style="display: none;"></video>
       <canvas bind:this={canvasEl} class="overlay-canvas"></canvas>
     </div>
+
+    <!-- Phase 7 Preset Plate Rack -->
+    <PlateSelector
+      bind:this={plateSelectorComponent}
+      {activePlate}
+      isModified={isPlateModified}
+      on:selectPlate={handleSelectPlate}
+      on:revertPlate={handleRevertPlate}
+      on:saveAsPlate={handleSaveAsPlate}
+    />
 
     <div class="control-panel">
       <RotaryDial 
@@ -394,7 +483,7 @@
     width: 100%;
     max-width: 1200px;
     height: 100%;
-    max-height: 800px;
+    max-height: 880px;
     background-color: #1a1612;
     border-radius: 4px;
     /* Hairline etched effect */

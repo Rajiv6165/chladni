@@ -1,9 +1,13 @@
 export class EMAFilter {
-    private alpha: number;
+    public alpha: number;
     private value: number | null = null;
 
     constructor(alpha: number = 0.2) {
         this.alpha = alpha;
+    }
+
+    setAlpha(newAlpha: number) {
+        this.alpha = Math.max(0.001, Math.min(1.0, newAlpha));
     }
 
     reset() {
