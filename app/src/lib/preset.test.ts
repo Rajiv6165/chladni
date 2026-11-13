@@ -27,8 +27,11 @@ const mockStorage = new MemoryStorage();
 (globalThis as any).localStorage = mockStorage;
 
 describe('Plate Preset Schema & Validation', () => {
-    it('validates all 6 factory plates successfully', () => {
-        expect(FACTORY_PLATES.length).toBeGreaterThanOrEqual(6);
+    it('validates all 10 factory plates successfully', () => {
+        expect(FACTORY_PLATES.length).toBe(10);
+        const modalPlates = FACTORY_PLATES.filter(p => p.engine === 'modal');
+        expect(modalPlates.length).toBe(4);
+
         for (const plate of FACTORY_PLATES) {
             const res = validatePlatePreset(plate);
             expect(res.valid).toBe(true);
@@ -36,7 +39,116 @@ describe('Plate Preset Schema & Validation', () => {
                 expect(res.preset.category).toBe('factory');
                 expect(res.preset.name).toBe(plate.name);
                 expect(res.preset.sound.delayFeedback).toBeLessThanOrEqual(0.95);
+                if (plate.engine === 'modal') {
+                    expect(res.preset.modal).toBeDefined();
+                    expect(res.preset.modal?.decay).toBeGreaterThanOrEqual(0.1);
+                    expect(res.preset.modal?.decay).toBeLessThanOrEqual(10.0);
+                    expect(res.preset.modal?.brightness).toBeGreaterThanOrEqual(0.1);
+                    expect(res.preset.modal?.brightness).toBeLessThanOrEqual(1.0);
+                    expect(res.preset.modal?.dampingTilt).toBeGreaterThanOrEqual(0.0);
+                    expect(res.preset.modal?.dampingTilt).toBeLessThanOrEqual(2.0);
+                    expect(res.preset.modal?.modeCount).toBeGreaterThanOrEqual(8);
+                    expect(res.preset.modal?.modeCount).toBeLessThanOrEqual(32);
+                }
             }
+        }
+    });
+
+    it('preserves full backward compatibility with version 1 presets', () => {
+        const v1Preset = {
+            version: 1,
+            id: 'legacy-v1',
+            name: 'Legacy Preset',
+            description: 'V1 preset from Phase 7',
+            category: 'user',
+            sound: {
+                waveform: 'saw',
+                attack: 0.05,
+                decay: 0.2,
+                sustain: 0.8,
+                release: 0.5,
+                filterCutoff: 3000,
+                filterResonance: 0.6,
+                reverbMix: 0.4,
+                delayTime: 250,
+                delayFeedback: 0.5,
+                detune: 0.0,
+                masterGain: 1.0,
+            },
+            visual: {
+                lineSharpness: 1.8,
+                grainAmount: 0.5,
+                modeMapping: 'harmonic',
+                tint: { r: 0.29, g: 0.48, b: 0.42 },
+            },
+            gesture: {
+                pitchRangeOctaves: 2.0,
+                baseOctave: 3,
+                smoothing: 0.15,
+                pinchThreshold: 0.05,
+            },
+        };
+
+        const res = validatePlatePreset(v1Preset);
+        expect(res.valid).toBe(true);
+        if (res.valid) {
+            expect(res.preset.version).toBe(1);
+            expect(res.preset.engine).toBe('subtractive');
+            expect(res.preset.modal).toBeUndefined();
+            expect(res.preset.sound.filterCutoff).toBe(3000);
+        }
+    });
+
+    it('validates and clamps version 2 modal presets with extreme values', () => {
+        const extremeModal = {
+            version: 2,
+            name: 'Extreme Modal Plate',
+            engine: 'modal',
+            modal: {
+                material: 'unobtainium', // Invalid material -> fallback
+                decay: 999.0,            // Clamped to 10.0
+                dampingTilt: -5.0,       // Clamped to 0.0
+                brightness: 15.0,        // Clamped to 1.0
+                modeCount: 128,          // Clamped to 32
+            },
+            sound: {
+                waveform: 'sine',
+                attack: 0.01,
+                decay: 0.1,
+                sustain: 0.5,
+                release: 0.2,
+                filterCutoff: 5000,
+                filterResonance: 0.5,
+                reverbMix: 0.5,
+                delayTime: 300,
+                delayFeedback: 0.5,
+                detune: 0,
+                masterGain: 1.0,
+            },
+            visual: {
+                lineSharpness: 2.0,
+                grainAmount: 0.5,
+                modeMapping: 'crystalline',
+                tint: { r: 0.5, g: 0.5, b: 0.5 },
+            },
+            gesture: {
+                pitchRangeOctaves: 2.0,
+                baseOctave: 3,
+                smoothing: 0.1,
+                pinchThreshold: 0.05,
+            },
+        };
+
+        const res = validatePlatePreset(extremeModal);
+        expect(res.valid).toBe(true);
+        if (res.valid) {
+            expect(res.preset.engine).toBe('modal');
+            expect(res.preset.modal).toBeDefined();
+            expect(res.preset.modal?.material).toBe('brass'); // Fallback
+            expect(res.preset.modal?.decay).toBe(10.0);
+            expect(res.preset.modal?.dampingTilt).toBe(0.0);
+            expect(res.preset.modal?.brightness).toBe(1.0);
+            expect(res.preset.modal?.modeCount).toBe(32);
         }
     });
 
@@ -200,6 +312,25 @@ describe('URL Hash Share Round-trip', () => {
             expect(decoded.preset.sound.waveform).toBe(plate.sound.waveform);
             expect(decoded.preset.sound.filterCutoff).toBe(plate.sound.filterCutoff);
             expect(decoded.preset.visual.modeMapping).toBe(plate.visual.modeMapping);
+        }
+    });
+
+    it('encodes and decodes a modal plate preset with modal parameters', () => {
+        const modalPlate = FACTORY_PLATES.find(p => p.engine === 'modal')!;
+        expect(modalPlate).toBeDefined();
+
+        const hash = presetToUrlHash(modalPlate);
+        expect(hash.startsWith('#plate=')).toBe(true);
+
+        const decoded = urlHashToPreset(hash);
+        expect(decoded.success).toBe(true);
+        if (decoded.success && decoded.preset) {
+            expect(decoded.preset.name).toBe(modalPlate.name);
+            expect(decoded.preset.engine).toBe('modal');
+            expect(decoded.preset.modal).toBeDefined();
+            expect(decoded.preset.modal?.material).toBe(modalPlate.modal?.material);
+            expect(decoded.preset.modal?.decay).toBeCloseTo(modalPlate.modal!.decay, 2);
+            expect(decoded.preset.modal?.brightness).toBeCloseTo(modalPlate.modal!.brightness, 2);
         }
     });
 

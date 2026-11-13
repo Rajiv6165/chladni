@@ -340,6 +340,9 @@
         <span class="badge" class:user={activePlate.category === 'user'}>
           {activePlate.category === 'factory' ? 'FACTORY' : 'USER'}
         </span>
+        <span class="badge engine-badge" class:modal={activePlate.engine === 'modal'}>
+          {activePlate.engine === 'modal' ? 'MODAL' : 'SUBTRACTIVE'}
+        </span>
         {#if isModified}
           <span class="modified-tag" title="Parameters changed from loaded plate">
             <span class="modified-dot"></span> MODIFIED
@@ -406,6 +409,9 @@
       >
         <span class="tab-led" class:lit={isActive}></span>
         <span class="tab-label">{plate.name}</span>
+        {#if plate.engine === 'modal'}
+          <span class="tab-mode-tag">M</span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -566,6 +572,29 @@
     background: rgba(74, 122, 107, 0.25);
     border-color: var(--color-plate-accent);
     color: var(--color-ivory);
+  }
+
+  .badge.engine-badge {
+    background: rgba(139, 90, 43, 0.2);
+    border-color: var(--color-brass-highlight);
+    color: var(--color-brass-pale);
+  }
+
+  .badge.engine-badge.modal {
+    background: rgba(74, 122, 107, 0.35);
+    border-color: var(--color-plate-accent);
+    color: #92d9c6;
+  }
+
+  .tab-mode-tag {
+    font-size: 0.55rem;
+    padding: 0 3px;
+    border-radius: 2px;
+    background: rgba(74, 122, 107, 0.35);
+    color: #92d9c6;
+    margin-left: 4px;
+    font-weight: bold;
+    border: 1px solid rgba(74, 122, 107, 0.5);
   }
 
   .modified-tag {

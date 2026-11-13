@@ -9,7 +9,7 @@
   import RecordControl from './lib/RecordControl.svelte';
   import TakePanel from './lib/TakePanel.svelte';
   import PlateSelector from './lib/PlateSelector.svelte';
-  import { FACTORY_PLATES, type PlatePreset } from './lib/preset';
+  import { FACTORY_PLATES, type PlatePreset, type MaterialType } from './lib/preset';
   import { MediaRecorderController, type TakeResult, type RecordingState } from './lib/MediaRecorderController';
   import './app.css';
 
@@ -62,10 +62,17 @@
   let resonanceNorm = FACTORY_PLATES[0].sound.filterResonance;
   let reverbNorm = FACTORY_PLATES[0].sound.reverbMix;
 
+  // Phase 9 Modal-specific dial states
+  let modalDecayNorm = 0.35; // 0.1s to 10.0s (0.1 + norm * 9.9)
+  let modalBrightnessNorm = 0.7; // 0.1 to 1.0 (0.1 + norm * 0.9)
+  let activeMaterial: MaterialType = 'brass';
+
   // Dragging state to prevent gesture override
   let isDraggingCutoff = false;
   let isDraggingResonance = false;
   let isDraggingReverb = false;
+  let isDraggingDecay = false;
+  let isDraggingBrightness = false;
 
   let currentNoteFreq = 0;
 
@@ -82,45 +89,93 @@
   let currentTake: TakeResult | null = null;
 
   $: cutoffActual = 100 * Math.pow(10, 2 * cutoffNorm); // 100 to 10000 Hz
+  $: modalDecayActual = 0.1 + modalDecayNorm * 9.9;
+  $: modalBrightnessActual = 0.1 + modalBrightnessNorm * 0.9;
+
   $: {
-    if (isAudioReady) audioEngine.setCutoff(cutoffActual);
-    if (!isApplyingPlate && (isDraggingCutoff || activePlate)) {
-      checkModified();
+    if (isAudioReady && activePlate.engine !== 'modal') {
+      audioEngine.setCutoff(cutoffActual);
+      if (!isApplyingPlate && (isDraggingCutoff || activePlate)) {
+        checkModified();
+      }
     }
   }
   
   $: {
-    if (isAudioReady) audioEngine.setResonance(resonanceNorm);
-    if (!isApplyingPlate && (isDraggingResonance || activePlate)) {
-      checkModified();
+    if (isAudioReady && activePlate.engine !== 'modal') {
+      audioEngine.setResonance(resonanceNorm);
+      if (!isApplyingPlate && (isDraggingResonance || activePlate)) {
+        checkModified();
+      }
     }
   }
   
   $: {
-    if (isAudioReady) audioEngine.setReverb(reverbNorm);
-    if (!isApplyingPlate && (isDraggingReverb || activePlate)) {
-      checkModified();
+    if (isAudioReady) {
+      audioEngine.setReverb(reverbNorm);
+      if (!isApplyingPlate && (isDraggingReverb || activePlate)) {
+        checkModified();
+      }
+    }
+  }
+
+  $: {
+    if (isAudioReady && activePlate.engine === 'modal') {
+      audioEngine.setModalDecay(modalDecayActual);
+      if (!isApplyingPlate && (isDraggingDecay || activePlate)) {
+        checkModified();
+      }
+    }
+  }
+
+  $: {
+    if (isAudioReady && activePlate.engine === 'modal') {
+      audioEngine.setBrightness(modalBrightnessActual);
+      if (!isApplyingPlate && (isDraggingBrightness || activePlate)) {
+        checkModified();
+      }
     }
   }
 
   function checkModified() {
     if (!activePlate || isApplyingPlate) return;
-    const cutoffDiff = Math.abs(cutoffActual - activePlate.sound.filterCutoff);
-    const resDiff = Math.abs(resonanceNorm - activePlate.sound.filterResonance);
-    const revDiff = Math.abs(reverbNorm - activePlate.sound.reverbMix);
-    if (cutoffDiff > 25 || resDiff > 0.03 || revDiff > 0.03) {
-      isPlateModified = true;
+    if (activePlate.engine === 'modal') {
+      const origDecay = activePlate.modal?.decay ?? 2.0;
+      const origBright = activePlate.modal?.brightness ?? 0.7;
+      const origRev = activePlate.sound.reverbMix;
+      if (Math.abs(modalDecayActual - origDecay) > 0.15 ||
+          Math.abs(modalBrightnessActual - origBright) > 0.05 ||
+          Math.abs(reverbNorm - origRev) > 0.03 ||
+          activeMaterial !== (activePlate.modal?.material ?? 'brass')) {
+        isPlateModified = true;
+      }
+    } else {
+      const cutoffDiff = Math.abs(cutoffActual - activePlate.sound.filterCutoff);
+      const resDiff = Math.abs(resonanceNorm - activePlate.sound.filterResonance);
+      const revDiff = Math.abs(reverbNorm - activePlate.sound.reverbMix);
+      if (cutoffDiff > 25 || resDiff > 0.03 || revDiff > 0.03) {
+        isPlateModified = true;
+      }
     }
   }
 
   function applyLoadedPlate(plate: PlatePreset) {
     isApplyingPlate = true;
-    cutoffNorm = Math.log10(plate.sound.filterCutoff / 100) / 2;
-    resonanceNorm = plate.sound.filterResonance;
-    reverbNorm = plate.sound.reverbMix;
+    if (plate.engine === 'modal') {
+      const decay = plate.modal?.decay ?? 2.0;
+      const bright = plate.modal?.brightness ?? 0.7;
+      modalDecayNorm = Math.max(0, Math.min(1, (decay - 0.1) / 9.9));
+      modalBrightnessNorm = Math.max(0, Math.min(1, (bright - 0.1) / 0.9));
+      activeMaterial = plate.modal?.material ?? 'brass';
+      reverbNorm = plate.sound.reverbMix;
+    } else {
+      cutoffNorm = Math.log10(plate.sound.filterCutoff / 100) / 2;
+      resonanceNorm = plate.sound.filterResonance;
+      reverbNorm = plate.sound.reverbMix;
+    }
 
     if (isAudioReady) {
-      audioEngine.applySoundPreset(plate.sound);
+      audioEngine.applySoundPreset(plate.sound, plate.engine, plate.modal);
     }
     visualizerComponent?.setVisualPreset(plate.visual);
     gestureMapper.setGesturePreset(plate.gesture);
@@ -141,18 +196,29 @@
   }
 
   function handleSaveAsPlate(e: CustomEvent<{ name: string; description: string }>) {
+    const isModal = activePlate.engine === 'modal';
     const newPlate: PlatePreset = {
-      version: 1,
+      version: 2,
       id: `user-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       name: e.detail.name,
       description: e.detail.description,
       category: 'user',
+      engine: isModal ? 'modal' : 'subtractive',
       sound: {
         ...activePlate.sound,
         filterCutoff: cutoffActual,
         filterResonance: resonanceNorm,
         reverbMix: reverbNorm,
       },
+      ...(isModal ? {
+        modal: {
+          material: activeMaterial,
+          decay: modalDecayActual,
+          dampingTilt: activePlate.modal?.dampingTilt ?? 0.8,
+          brightness: modalBrightnessActual,
+          modeCount: activePlate.modal?.modeCount ?? 16,
+        }
+      } : {}),
       visual: { ...activePlate.visual },
       gesture: { ...activePlate.gesture },
     };
@@ -293,19 +359,36 @@
           }
         }
         
-        if (mapped.noteOnEvent && mapped.pitch !== undefined) {
-            currentNoteFreq = audioEngine.mtof(mapped.pitch);
-            audioEngine.noteOn(currentNoteFreq, 1.0);
-        } else if (mapped.noteOffEvent && currentNoteFreq !== 0) {
-            audioEngine.noteOff(currentNoteFreq);
-            currentNoteFreq = 0;
+        if (activePlate.engine === 'modal') {
+            if (mapped.strikeEvent) {
+                const strikeFreq = mapped.pitch !== undefined ? audioEngine.mtof(mapped.pitch) : (currentNoteFreq || 220);
+                currentNoteFreq = strikeFreq;
+                audioEngine.strike(mapped.strikeEvent.x, mapped.strikeEvent.y, mapped.strikeEvent.velocity, currentNoteFreq);
+                visualizerComponent?.triggerStrike(mapped.strikeEvent.x, mapped.strikeEvent.y);
+            } else if (mapped.pitch !== undefined) {
+                currentNoteFreq = audioEngine.mtof(mapped.pitch);
+                audioEngine.targetFreq = currentNoteFreq;
+            }
+
+            if (mapped.cutoff !== undefined && !isDraggingBrightness) {
+                modalBrightnessNorm = Math.max(0, Math.min(1, Math.log10(mapped.cutoff / 100) / 2));
+            }
+        } else {
+            if (mapped.noteOnEvent && mapped.pitch !== undefined) {
+                currentNoteFreq = audioEngine.mtof(mapped.pitch);
+                audioEngine.noteOn(currentNoteFreq, 1.0);
+            } else if (mapped.noteOffEvent && currentNoteFreq !== 0) {
+                audioEngine.noteOff(currentNoteFreq);
+                currentNoteFreq = 0;
+            }
+
+            // Only update from gestures if user is not actively dragging the dial
+            if (mapped.cutoff !== undefined && !isDraggingCutoff) {
+                // mapped.cutoff is 100 to 10000. Inverse map to 0-1
+                cutoffNorm = Math.log10(mapped.cutoff / 100) / 2;
+            }
         }
 
-        // Only update from gestures if user is not actively dragging the dial
-        if (mapped.cutoff !== undefined && !isDraggingCutoff) {
-            // mapped.cutoff is 100 to 10000. Inverse map to 0-1
-            cutoffNorm = Math.log10(mapped.cutoff / 100) / 2;
-        }
         if (mapped.reverb !== undefined && !isDraggingReverb) {
             reverbNorm = mapped.reverb;
         }
@@ -369,26 +452,49 @@
     />
 
     <div class="control-panel">
-      <RotaryDial 
-        label="Cutoff" 
-        bind:value={cutoffNorm} 
-        bind:isDragging={isDraggingCutoff}
-        readout={formatCutoff(cutoffNorm)}
-        gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
-      />
-      <RotaryDial 
-        label="Reson." 
-        bind:value={resonanceNorm} 
-        bind:isDragging={isDraggingResonance}
-        readout={formatPct(resonanceNorm)}
-      />
-      <RotaryDial 
-        label="Reverb" 
-        bind:value={reverbNorm} 
-        bind:isDragging={isDraggingReverb}
-        readout={formatPct(reverbNorm)}
-        gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
-      />
+      {#if activePlate.engine === 'modal'}
+        <RotaryDial 
+          label="Decay" 
+          bind:value={modalDecayNorm} 
+          bind:isDragging={isDraggingDecay}
+          readout={`${modalDecayActual.toFixed(1)}s`}
+        />
+        <RotaryDial 
+          label="Bright." 
+          bind:value={modalBrightnessNorm} 
+          bind:isDragging={isDraggingBrightness}
+          readout={formatPct(modalBrightnessNorm)}
+          gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
+        />
+        <RotaryDial 
+          label="Reverb" 
+          bind:value={reverbNorm} 
+          bind:isDragging={isDraggingReverb}
+          readout={formatPct(reverbNorm)}
+          gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
+        />
+      {:else}
+        <RotaryDial 
+          label="Cutoff" 
+          bind:value={cutoffNorm} 
+          bind:isDragging={isDraggingCutoff}
+          readout={formatCutoff(cutoffNorm)}
+          gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
+        />
+        <RotaryDial 
+          label="Reson." 
+          bind:value={resonanceNorm} 
+          bind:isDragging={isDraggingResonance}
+          readout={formatPct(resonanceNorm)}
+        />
+        <RotaryDial 
+          label="Reverb" 
+          bind:value={reverbNorm} 
+          bind:isDragging={isDraggingReverb}
+          readout={formatPct(reverbNorm)}
+          gestureColor={activeHands.right ? "var(--color-brass-highlight)" : null}
+        />
+      {/if}
       <RecordControl 
         state={recState}
         elapsedSeconds={recElapsed}
@@ -446,14 +552,15 @@
             <div class="help-grid">
               <div class="help-col">
                 <h4 style="color: var(--color-plate-accent)">LEFT HAND</h4>
-                <p><strong>Pinch (Index + Thumb):</strong> Trigger Note</p>
-                <p><strong>Y Axis (Up/Down):</strong> Pitch (C3 to C5)</p>
+                <p><strong>Modal Strike:</strong> Open pinch to strike the plate at hand position</p>
+                <p><strong>Subtractive Gate:</strong> Pinch to sustain continuous note</p>
+                <p><strong>Y Axis (Up/Down):</strong> Pitch / Fundamental (C3 to C5)</p>
               </div>
               <div class="help-col">
-                <h4 style="color: var(--color-brass-highlight)">RIGHT HAND</h4>
-                <p><strong>X Axis (Left/Right):</strong> Reverb</p>
-                <p><strong>Y Axis (Up/Down):</strong> Filter Cutoff</p>
-                <p><strong>Note:</strong> Right hand only active while left hand is pinching.</p>
+                <h4 style="color: var(--color-brass-highlight)">RIGHT HAND / TOUCH</h4>
+                <p><strong>X Axis (Left/Right):</strong> Reverb / Acoustic Space</p>
+                <p><strong>Y Axis (Up/Down):</strong> Brightness / Cutoff</p>
+                <p><strong>Direct Strike:</strong> Click or tap anywhere on the plate to strike</p>
               </div>
             </div>
             <button class="power-button" style="margin-top: 2rem;" on:click={() => showHelp = false}>

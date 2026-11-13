@@ -12,6 +12,29 @@ export class WasmSynth {
         wasm.__wbg_wasmsynth_free(ptr, 0);
     }
     /**
+     * @returns {number}
+     */
+    get_engine_mode() {
+        const ret = wasm.wasmsynth_get_engine_mode(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {Float32Array} output_buffer
+     */
+    get_mode_amplitudes(output_buffer) {
+        var ptr0 = passArrayF32ToWasm0(output_buffer, wasm.__wbindgen_malloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.wasmsynth_get_mode_amplitudes(this.__wbg_ptr, ptr0, len0, output_buffer);
+    }
+    /**
+     * @param {Float32Array} output_buffer
+     */
+    get_mode_table(output_buffer) {
+        var ptr0 = passArrayF32ToWasm0(output_buffer, wasm.__wbindgen_malloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.wasmsynth_get_mode_table(this.__wbg_ptr, ptr0, len0, output_buffer);
+    }
+    /**
      * @param {number} sample_rate
      */
     constructor(sample_rate) {
@@ -51,6 +74,24 @@ export class WasmSynth {
         wasm.wasmsynth_set_adsr(this.__wbg_ptr, attack_sec, decay_sec, sustain, release_sec);
     }
     /**
+     * @param {number} brightness
+     */
+    set_brightness(brightness) {
+        wasm.wasmsynth_set_brightness(this.__wbg_ptr, brightness);
+    }
+    /**
+     * @param {number} tilt
+     */
+    set_damping_tilt(tilt) {
+        wasm.wasmsynth_set_damping_tilt(this.__wbg_ptr, tilt);
+    }
+    /**
+     * @param {number} decay
+     */
+    set_decay(decay) {
+        wasm.wasmsynth_set_decay(this.__wbg_ptr, decay);
+    }
+    /**
      * @param {number} feedback
      */
     set_delay_feedback(feedback) {
@@ -67,6 +108,12 @@ export class WasmSynth {
      */
     set_detune(cents) {
         wasm.wasmsynth_set_detune(this.__wbg_ptr, cents);
+    }
+    /**
+     * @param {number} mode
+     */
+    set_engine_mode(mode) {
+        wasm.wasmsynth_set_engine_mode(this.__wbg_ptr, mode);
     }
     /**
      * @param {number} cutoff
@@ -87,6 +134,18 @@ export class WasmSynth {
         wasm.wasmsynth_set_master_gain(this.__wbg_ptr, gain);
     }
     /**
+     * @param {number} mat_id
+     */
+    set_material(mat_id) {
+        wasm.wasmsynth_set_material(this.__wbg_ptr, mat_id);
+    }
+    /**
+     * @param {number} count
+     */
+    set_mode_count(count) {
+        wasm.wasmsynth_set_mode_count(this.__wbg_ptr, count);
+    }
+    /**
      * @param {number} mix
      */
     set_reverb_mix(mix) {
@@ -97,6 +156,15 @@ export class WasmSynth {
      */
     set_waveform(waveform) {
         wasm.wasmsynth_set_waveform(this.__wbg_ptr, waveform);
+    }
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} velocity
+     * @param {number} freq
+     */
+    strike(x, y, velocity, freq) {
+        wasm.wasmsynth_strike(this.__wbg_ptr, x, y, velocity, freq);
     }
 }
 if (Symbol.dispose) WasmSynth.prototype[Symbol.dispose] = WasmSynth.prototype.free;

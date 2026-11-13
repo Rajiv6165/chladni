@@ -21,6 +21,7 @@ export class GestureMapper {
     // Tracking state for robust identity across frames
     private lastLeftHandCentroid: { x: number, y: number } | null = null;
     private lastRightHandCentroid: { x: number, y: number } | null = null;
+    private lastPinchDist = 0.1;
 
     constructor() {}
 
@@ -61,11 +62,13 @@ export class GestureMapper {
         reverb?: number, 
         noteOnEvent?: boolean, 
         noteOffEvent?: boolean,
+        strikeEvent?: { x: number, y: number, velocity: number } | null,
         activeHands: { left: boolean, right: boolean },
         leftHandIndex?: number | null,
         rightHandIndex?: number | null
     } {
         let activeHands = { left: false, right: false };
+        let strikeEvent: { x: number, y: number, velocity: number } | null = null;
 
         if (!result.landmarks || result.landmarks.length === 0) {
             // No hands detected
@@ -166,10 +169,16 @@ export class GestureMapper {
             if (!this.isNoteOn && pinchDist > this.pinchThresholdOff) {
                 this.isNoteOn = true;
                 noteOnEvent = true;
+                const openSpeed = Math.max(0.0, pinchDist - this.lastPinchDist);
+                const velocity = Math.min(1.0, Math.max(0.4, 0.5 + openSpeed * 10.0));
+                const strikeX = Math.max(0.05, Math.min(0.95, (indexTip.x - 0.1) / 0.8));
+                const strikeY = Math.max(0.05, Math.min(0.95, 1.0 - ((indexTip.y - 0.2) / 0.6)));
+                strikeEvent = { x: strikeX, y: strikeY, velocity };
             } else if (this.isNoteOn && pinchDist < this.pinchThresholdOn) {
                 this.isNoteOn = false;
                 noteOffEvent = true;
             }
+            this.lastPinchDist = pinchDist;
         } else {
             this.lastLeftHandCentroid = null;
             // If left hand disappears, turn note off gracefully
@@ -214,6 +223,7 @@ export class GestureMapper {
             reverb: outReverb,
             noteOnEvent,
             noteOffEvent,
+            strikeEvent,
             activeHands,
             leftHandIndex: leftHand ? leftHand.index : null,
             rightHandIndex: rightHand ? rightHand.index : null

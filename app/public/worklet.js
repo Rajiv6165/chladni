@@ -1,11 +1,13 @@
 import './polyfill.js';
-import init, { WasmSynth } from '../pkg/synth_core.js?v=10';
+import init, { WasmSynth } from '../pkg/synth_core.js?v=11';
 
 class SynthWorklet extends AudioWorkletProcessor {
     constructor() {
         super();
         this.synth = null;
         this.buffer = null;
+        this.modeAmplitudesBuffer = null;
+        this.blockCount = 0;
         this.port.onmessage = this.handleMessage.bind(this);
     }
 
@@ -17,8 +19,15 @@ class SynthWorklet extends AudioWorkletProcessor {
                 
                 this.synth = new WasmSynth(data.sampleRate);
                 this.buffer = new Float32Array(128);
+                this.modeAmplitudesBuffer = new Float32Array(32);
                 
-                this.port.postMessage('ready');
+                const modeTable = new Float32Array(64);
+                this.synth.get_mode_table(modeTable);
+
+                this.port.postMessage({
+                    type: 'ready',
+                    modeTable: Array.from(modeTable)
+                });
             } catch (err) {
                 console.error("Failed to init WASM in worklet", err);
             }
@@ -61,18 +70,52 @@ class SynthWorklet extends AudioWorkletProcessor {
             case 'set_master_gain':
                 this.synth.set_master_gain(data.value);
                 break;
+            // Phase 9 Modal Engine Handlers
+            case 'set_engine_mode':
+                this.synth.set_engine_mode(data.mode);
+                break;
+            case 'strike':
+                this.synth.strike(data.x, data.y, data.velocity, data.freq);
+                break;
+            case 'set_material':
+                this.synth.set_material(data.material);
+                break;
+            case 'set_decay':
+                this.synth.set_decay(data.decay);
+                break;
+            case 'set_damping_tilt':
+                this.synth.set_damping_tilt(data.tilt);
+                break;
+            case 'set_brightness':
+                this.synth.set_brightness(data.brightness);
+                break;
+            case 'set_mode_count':
+                this.synth.set_mode_count(data.count);
+                break;
             case 'apply_sound_preset': {
+                if (data.engine !== undefined) {
+                    this.synth.set_engine_mode(data.engine === 'modal' ? 1 : 0);
+                }
                 const s = data.sound;
-                if (!s) break;
-                if (typeof s.waveformNumber === 'number') this.synth.set_waveform(s.waveformNumber);
-                if (typeof s.attack === 'number') this.synth.set_adsr(s.attack, s.decay, s.sustain, s.release);
-                if (typeof s.filterCutoff === 'number') this.synth.set_filter_cutoff(s.filterCutoff);
-                if (typeof s.filterResonance === 'number') this.synth.set_filter_resonance(s.filterResonance);
-                if (typeof s.reverbMix === 'number') this.synth.set_reverb_mix(s.reverbMix);
-                if (typeof s.delayTime === 'number') this.synth.set_delay_time(s.delayTime);
-                if (typeof s.delayFeedback === 'number') this.synth.set_delay_feedback(s.delayFeedback);
-                if (typeof s.detune === 'number') this.synth.set_detune(s.detune);
-                if (typeof s.masterGain === 'number') this.synth.set_master_gain(s.masterGain);
+                if (s) {
+                    if (typeof s.waveformNumber === 'number') this.synth.set_waveform(s.waveformNumber);
+                    if (typeof s.attack === 'number') this.synth.set_adsr(s.attack, s.decay, s.sustain, s.release);
+                    if (typeof s.filterCutoff === 'number') this.synth.set_filter_cutoff(s.filterCutoff);
+                    if (typeof s.filterResonance === 'number') this.synth.set_filter_resonance(s.filterResonance);
+                    if (typeof s.reverbMix === 'number') this.synth.set_reverb_mix(s.reverbMix);
+                    if (typeof s.delayTime === 'number') this.synth.set_delay_time(s.delayTime);
+                    if (typeof s.delayFeedback === 'number') this.synth.set_delay_feedback(s.delayFeedback);
+                    if (typeof s.detune === 'number') this.synth.set_detune(s.detune);
+                    if (typeof s.masterGain === 'number') this.synth.set_master_gain(s.masterGain);
+                }
+                const m = data.modal;
+                if (m) {
+                    if (typeof m.materialNumber === 'number') this.synth.set_material(m.materialNumber);
+                    if (typeof m.decay === 'number') this.synth.set_decay(m.decay);
+                    if (typeof m.dampingTilt === 'number') this.synth.set_damping_tilt(m.dampingTilt);
+                    if (typeof m.brightness === 'number') this.synth.set_brightness(m.brightness);
+                    if (typeof m.modeCount === 'number') this.synth.set_mode_count(m.modeCount);
+                }
                 break;
             }
         }
@@ -93,6 +136,19 @@ class SynthWorklet extends AudioWorkletProcessor {
             
             for (let c = 1; c < output.length; ++c) {
                 output[c][i] = this.buffer[i];
+            }
+        }
+
+        // Throttle live mode amplitudes reporting to ~60Hz (~every 6 blocks of 128 samples at 48kHz)
+        this.blockCount++;
+        if (this.blockCount >= 6) {
+            this.blockCount = 0;
+            if (this.synth.get_engine_mode() === 1 && this.modeAmplitudesBuffer) {
+                this.synth.get_mode_amplitudes(this.modeAmplitudesBuffer);
+                this.port.postMessage({
+                    type: 'modal_amplitudes',
+                    amplitudes: Array.from(this.modeAmplitudesBuffer)
+                });
             }
         }
 

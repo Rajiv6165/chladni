@@ -1,5 +1,13 @@
 import { encodeWav } from './wavEncoder';
-import { WAVEFORM_MAP, type SoundPreset, type WaveformType } from './preset';
+import { 
+    WAVEFORM_MAP, 
+    MATERIAL_MAP, 
+    type SoundPreset, 
+    type WaveformType, 
+    type EngineType, 
+    type MaterialType, 
+    type ModalPreset 
+} from './preset';
 
 export interface RecordedAudioTake {
     wavBlob: Blob;
@@ -13,6 +21,12 @@ export class AudioEngine {
     recorderWorkletNode: AudioWorkletNode | null = null;
     mediaStreamDest: MediaStreamAudioDestinationNode | null = null;
     isReady: boolean = false;
+
+    // Phase 9 Modal synthesis state
+    engineMode: EngineType = 'subtractive';
+    modalAmplitudes: Float32Array = new Float32Array(32);
+    modeTable: Float32Array = new Float32Array(64);
+    onModalAmplitudes?: (amps: Float32Array) => void;
 
     analyserNode: AnalyserNode | null = null;
     targetFreq: number = 0;
@@ -90,15 +104,24 @@ export class AudioEngine {
             };
 
             // Load WASM from location relative to current page for GitHub Pages compatibility
-            const wasmUrl = new URL('pkg/synth_core_bg.wasm?v=10', window.location.href).href;
+            const wasmUrl = new URL('pkg/synth_core_bg.wasm?v=11', window.location.href).href;
             const response = await fetch(wasmUrl);
             const buffer = await response.arrayBuffer();
             const wasmModule = await WebAssembly.compile(buffer);
 
             this.synthWorkletNode.port.onmessage = (e) => {
-                if (e.data === 'ready') {
+                const msg = e.data;
+                if (msg === 'ready' || msg?.type === 'ready') {
+                    if (msg?.modeTable && Array.isArray(msg.modeTable)) {
+                        this.modeTable.set(msg.modeTable);
+                    }
                     this.isReady = true;
                     if (onReady) onReady();
+                } else if (msg?.type === 'modal_amplitudes' && Array.isArray(msg.amplitudes)) {
+                    this.modalAmplitudes.set(msg.amplitudes);
+                    if (this.onModalAmplitudes) {
+                        this.onModalAmplitudes(this.modalAmplitudes);
+                    }
                 }
             };
 
@@ -247,15 +270,81 @@ export class AudioEngine {
         this.synthWorkletNode.port.postMessage({ type: 'set_master_gain', value });
     }
 
-    applySoundPreset(sound: SoundPreset) {
+    // Phase 9 Modal Engine controls
+    setEngineMode(mode: EngineType) {
+        this.engineMode = mode;
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ 
+            type: 'set_engine_mode', 
+            mode: mode === 'modal' ? 1 : 0 
+        });
+    }
+
+    strike(x: number, y: number, velocity: number = 1.0, freq?: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        const strikeFreq = freq !== undefined && freq > 0 ? freq : (this.currentFreq || 220.0);
+        this.targetFreq = strikeFreq;
+        if (this.currentFreq === 0) this.currentFreq = strikeFreq;
+        this.synthWorkletNode.port.postMessage({
+            type: 'strike',
+            x: Math.max(0.01, Math.min(0.99, x)),
+            y: Math.max(0.01, Math.min(0.99, y)),
+            velocity: Math.max(0.05, Math.min(1.0, velocity)),
+            freq: strikeFreq
+        });
+    }
+
+    setMaterial(material: MaterialType | number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        const id = typeof material === 'number' ? material : (MATERIAL_MAP[material] ?? 1);
+        this.synthWorkletNode.port.postMessage({ type: 'set_material', material: id });
+    }
+
+    setModalDecay(decay: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_decay', decay });
+    }
+
+    setDampingTilt(tilt: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_damping_tilt', tilt });
+    }
+
+    setBrightness(brightness: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_brightness', brightness });
+    }
+
+    setModeCount(count: number) {
+        if (!this.synthWorkletNode || !this.isReady) return;
+        this.synthWorkletNode.port.postMessage({ type: 'set_mode_count', count });
+    }
+
+    getModalAmplitudes(): Float32Array {
+        return this.modalAmplitudes;
+    }
+
+    getModeTable(): Float32Array {
+        return this.modeTable;
+    }
+
+    applySoundPreset(sound: SoundPreset, engine: EngineType = 'subtractive', modal?: ModalPreset) {
+        this.engineMode = engine;
         if (!this.synthWorkletNode || !this.isReady) return;
         const waveformNumber = WAVEFORM_MAP[sound.waveform] ?? 0;
+        const modalPayload = modal ? {
+            ...modal,
+            materialNumber: MATERIAL_MAP[modal.material] ?? 1
+        } : undefined;
+
         this.synthWorkletNode.port.postMessage({
             type: 'apply_sound_preset',
+            engine,
             sound: {
                 ...sound,
                 waveformNumber
-            }
+            },
+            modal: modalPayload
         });
     }
 

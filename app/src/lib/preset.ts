@@ -1,5 +1,23 @@
 export type WaveformType = 'saw' | 'square' | 'triangle' | 'sine';
 export type ModeMappingType = 'harmonic' | 'crystalline' | 'dense' | 'radial' | 'concentric';
+export type EngineType = 'subtractive' | 'modal';
+export type MaterialType = 'glass' | 'brass' | 'bronze' | 'wood' | 'ceramic';
+
+export const MATERIAL_MAP: Record<MaterialType, number> = {
+    glass: 0,
+    brass: 1,
+    bronze: 2,
+    wood: 3,
+    ceramic: 4,
+};
+
+export interface ModalPreset {
+    material: MaterialType;
+    decay: number;        // 0.1 - 10.0s
+    dampingTilt: number;  // 0.0 - 2.0
+    brightness: number;   // 0.1 - 1.0
+    modeCount: number;    // 8 - 32
+}
 
 export interface SoundPreset {
     waveform: WaveformType;
@@ -35,12 +53,14 @@ export interface GesturePreset {
 }
 
 export interface PlatePreset {
-    version: 1;
+    version: 1 | 2;
     id: string;
     name: string;
     description: string;
     category: 'factory' | 'user';
+    engine?: EngineType;
     sound: SoundPreset;
+    modal?: ModalPreset;
     visual: VisualPreset;
     gesture: GesturePreset;
 }
@@ -54,11 +74,12 @@ export const WAVEFORM_MAP: Record<WaveformType, number> = {
 
 export const FACTORY_PLATES: PlatePreset[] = [
     {
-        version: 1,
+        version: 2,
         id: 'bell',
         name: 'Bell',
         description: 'Pure sinusoidal resonance with crystalline nodal lines and enduring bell decay.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'sine',
             attack: 0.005,
@@ -87,11 +108,12 @@ export const FACTORY_PLATES: PlatePreset[] = [
         },
     },
     {
-        version: 1,
+        version: 2,
         id: 'glass-harmonica',
         name: 'Glass Harmonica',
         description: 'Soft-edged ethereal friction tones with fine powder dispersion.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'triangle',
             attack: 0.15,
@@ -120,11 +142,12 @@ export const FACTORY_PLATES: PlatePreset[] = [
         },
     },
     {
-        version: 1,
+        version: 2,
         id: 'brass-drone',
         name: 'Brass Drone',
         description: 'Heavy detuned dual-saw resonance with thick, viscous nodal ribbons.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'saw',
             attack: 0.08,
@@ -153,11 +176,12 @@ export const FACTORY_PLATES: PlatePreset[] = [
         },
     },
     {
-        version: 1,
+        version: 2,
         id: 'pluck',
         name: 'Pluck',
         description: 'Percussive square-wave transient with snappy nodal settling.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'square',
             attack: 0.002,
@@ -186,11 +210,12 @@ export const FACTORY_PLATES: PlatePreset[] = [
         },
     },
     {
-        version: 1,
+        version: 2,
         id: 'deep-plate',
         name: 'Deep Plate',
         description: 'Subterranean acoustic resonance vibrating heavy bronze grain.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'triangle',
             attack: 0.06,
@@ -219,11 +244,12 @@ export const FACTORY_PLATES: PlatePreset[] = [
         },
     },
     {
-        version: 1,
+        version: 2,
         id: 'shimmer',
         name: 'Shimmer',
         description: 'Scintillating high register with cascading echo trails and intricate geometry.',
         category: 'factory',
+        engine: 'subtractive',
         sound: {
             waveform: 'saw',
             attack: 0.04,
@@ -251,6 +277,171 @@ export const FACTORY_PLATES: PlatePreset[] = [
             pinchThreshold: 0.05,
         },
     },
+    // Phase 9 Modal Factory Plates
+    {
+        version: 2,
+        id: 'struck-glass',
+        name: 'Struck Glass',
+        description: 'Crystalline resonance with slow high-frequency decay and pristine nodal clarity.',
+        category: 'factory',
+        engine: 'modal',
+        modal: {
+            material: 'glass',
+            decay: 3.5,
+            dampingTilt: 0.4,
+            brightness: 0.9,
+            modeCount: 24,
+        },
+        sound: {
+            waveform: 'sine',
+            attack: 0.005,
+            decay: 0.5,
+            sustain: 0.5,
+            release: 1.0,
+            filterCutoff: 8000,
+            filterResonance: 0.3,
+            reverbMix: 0.5,
+            delayTime: 360,
+            delayFeedback: 0.45,
+            detune: 0.0,
+            masterGain: 1.0,
+        },
+        visual: {
+            lineSharpness: 3.0,
+            grainAmount: 0.35,
+            modeMapping: 'crystalline',
+            tint: { r: 0.82, g: 0.86, b: 0.90 }, // Crystalline Pale Ivory
+        },
+        gesture: {
+            pitchRangeOctaves: 2.0,
+            baseOctave: 4,
+            smoothing: 0.1,
+            pinchThreshold: 0.05,
+        },
+    },
+    {
+        version: 2,
+        id: 'bronze-gong',
+        name: 'Bronze Gong',
+        description: 'Heavy inharmonic spread with enduring fundamental resonance and dense particle dispersion.',
+        category: 'factory',
+        engine: 'modal',
+        modal: {
+            material: 'bronze',
+            decay: 5.0,
+            dampingTilt: 0.9,
+            brightness: 0.65,
+            modeCount: 32,
+        },
+        sound: {
+            waveform: 'saw',
+            attack: 0.01,
+            decay: 0.8,
+            sustain: 0.7,
+            release: 2.0,
+            filterCutoff: 3000,
+            filterResonance: 0.5,
+            reverbMix: 0.6,
+            delayTime: 480,
+            delayFeedback: 0.65,
+            detune: 5.0,
+            masterGain: 1.1,
+        },
+        visual: {
+            lineSharpness: 1.2,
+            grainAmount: 0.75,
+            modeMapping: 'dense',
+            tint: { r: 0.68, g: 0.48, b: 0.24 }, // Warm Burnished Brass
+        },
+        gesture: {
+            pitchRangeOctaves: 2.0,
+            baseOctave: 2,
+            smoothing: 0.18,
+            pinchThreshold: 0.05,
+        },
+    },
+    {
+        version: 2,
+        id: 'wooden-plate',
+        name: 'Wooden Plate',
+        description: 'Rapid high-frequency damping with a dry, woody strike transient and broad low-order modes.',
+        category: 'factory',
+        engine: 'modal',
+        modal: {
+            material: 'wood',
+            decay: 0.8,
+            dampingTilt: 1.6,
+            brightness: 0.45,
+            modeCount: 16,
+        },
+        sound: {
+            waveform: 'triangle',
+            attack: 0.005,
+            decay: 0.2,
+            sustain: 0.1,
+            release: 0.3,
+            filterCutoff: 2200,
+            filterResonance: 0.3,
+            reverbMix: 0.25,
+            delayTime: 180,
+            delayFeedback: 0.2,
+            detune: 0.0,
+            masterGain: 1.05,
+        },
+        visual: {
+            lineSharpness: 1.8,
+            grainAmount: 0.5,
+            modeMapping: 'harmonic',
+            tint: { r: 0.56, g: 0.42, b: 0.28 }, // Warm Organic Timber
+        },
+        gesture: {
+            pitchRangeOctaves: 2.0,
+            baseOctave: 3,
+            smoothing: 0.08,
+            pinchThreshold: 0.05,
+        },
+    },
+    {
+        version: 2,
+        id: 'cymatic-bowl',
+        name: 'Cymatic Bowl',
+        description: 'Metallic singing bowl shimmer with rich modal interplay and delicate verdigris ripples.',
+        category: 'factory',
+        engine: 'modal',
+        modal: {
+            material: 'ceramic',
+            decay: 4.0,
+            dampingTilt: 0.7,
+            brightness: 0.8,
+            modeCount: 24,
+        },
+        sound: {
+            waveform: 'sine',
+            attack: 0.01,
+            decay: 0.6,
+            sustain: 0.8,
+            release: 1.8,
+            filterCutoff: 5000,
+            filterResonance: 0.4,
+            reverbMix: 0.55,
+            delayTime: 400,
+            delayFeedback: 0.5,
+            detune: 2.0,
+            masterGain: 1.0,
+        },
+        visual: {
+            lineSharpness: 2.4,
+            grainAmount: 0.85,
+            modeMapping: 'concentric',
+            tint: { r: 0.32, g: 0.58, b: 0.52 }, // Fine Verdigris Patina
+        },
+        gesture: {
+            pitchRangeOctaves: 2.5,
+            baseOctave: 3,
+            smoothing: 0.12,
+            pinchThreshold: 0.05,
+        },
+    },
 ];
 
 function clamp(val: any, min: number, max: number, defaultVal: number): number {
@@ -261,7 +452,6 @@ function clamp(val: any, min: number, max: number, defaultVal: number): number {
 
 function sanitizeString(str: any, maxLength: number, defaultVal: string): string {
     if (typeof str !== 'string') return defaultVal;
-    // Strip HTML tags and quotes/control chars
     const cleaned = str.replace(/<[^>]*>/g, '').replace(/["'&]/g, '').trim();
     if (!cleaned) return defaultVal;
     return cleaned.slice(0, maxLength);
@@ -282,14 +472,16 @@ export function validatePlatePreset(raw: any): { valid: true; preset: PlatePrese
         return { valid: false, error: 'Preset must be an object' };
     }
 
-    if (raw.version !== 1) {
-        return { valid: false, error: `Unsupported preset version: ${raw.version} (expected 1)` };
+    if (raw.version !== 1 && raw.version !== 2) {
+        return { valid: false, error: `Unsupported preset version: ${raw.version} (expected 1 or 2)` };
     }
 
     const name = sanitizeString(raw.name, 36, 'Untitled Plate');
     const id = sanitizeString(raw.id || `plate-${Date.now()}`, 48, `plate-${Date.now()}`);
     const description = sanitizeString(raw.description, 140, 'Custom user crafted plate preset.');
     const category: 'factory' | 'user' = raw.category === 'factory' ? 'factory' : 'user';
+
+    const engine: EngineType = raw.engine === 'modal' ? 'modal' : 'subtractive';
 
     const s = raw.sound || {};
     const validWaveforms: WaveformType[] = ['saw', 'square', 'triangle', 'sine'];
@@ -309,6 +501,20 @@ export function validatePlatePreset(raw: any): { valid: true; preset: PlatePrese
         detune: clamp(s.detune, 0.0, 50.0, 0.0),
         masterGain: clamp(s.masterGain, 0.0, 1.5, 1.0),
     };
+
+    let modal: ModalPreset | undefined = undefined;
+    if (engine === 'modal' || raw.modal) {
+        const m = raw.modal || {};
+        const validMaterials: MaterialType[] = ['glass', 'brass', 'bronze', 'wood', 'ceramic'];
+        const material: MaterialType = validMaterials.includes(m.material) ? m.material : 'brass';
+        modal = {
+            material,
+            decay: clamp(m.decay, 0.1, 10.0, 2.0),
+            dampingTilt: clamp(m.dampingTilt, 0.0, 2.0, 0.8),
+            brightness: clamp(m.brightness, 0.1, 1.0, 0.7),
+            modeCount: Math.round(clamp(m.modeCount, 8, 32, 16)),
+        };
+    }
 
     const v = raw.visual || {};
     const validModes: ModeMappingType[] = ['harmonic', 'crystalline', 'dense', 'radial', 'concentric'];
@@ -335,12 +541,14 @@ export function validatePlatePreset(raw: any): { valid: true; preset: PlatePrese
     };
 
     const preset: PlatePreset = {
-        version: 1,
+        version: raw.version === 1 ? 1 : 2,
         id,
         name,
         description,
         category,
+        engine,
         sound,
+        ...(modal ? { modal } : {}),
         visual,
         gesture,
     };
@@ -366,7 +574,6 @@ export function loadUserPlates(): { plates: PlatePreset[]; warning?: string } {
         for (const item of parsed) {
             const res = validatePlatePreset(item);
             if (res.valid) {
-                // Ensure loaded user plates are marked as user category
                 res.preset.category = 'user';
                 validPlates.push(res.preset);
             }
@@ -401,7 +608,7 @@ export function exportPlateJson(preset: PlatePreset): string {
 }
 
 export function exportAllPlatesJson(presets: PlatePreset[]): string {
-    return JSON.stringify({ version: 1, type: 'chladni_plate_collection', plates: presets }, null, 2);
+    return JSON.stringify({ version: 2, type: 'chladni_plate_collection', plates: presets }, null, 2);
 }
 
 export function parsePlateFileContent(content: string): { 
@@ -449,16 +656,19 @@ export function parsePlateFileContent(content: string): {
 // Compact URL hash sharing: #plate=<base64url>
 export function presetToUrlHash(preset: PlatePreset): string {
     try {
-        const minified = JSON.stringify({
+        const minified: any = {
             v: preset.version,
             n: preset.name,
             d: preset.description,
+            e: preset.engine,
             s: preset.sound,
             vi: preset.visual,
             g: preset.gesture,
-        });
-        // Use UTF-8 safe base64url encoding
-        const utf8Bytes = new TextEncoder().encode(minified);
+        };
+        if (preset.modal) {
+            minified.m = preset.modal;
+        }
+        const utf8Bytes = new TextEncoder().encode(JSON.stringify(minified));
         let binary = '';
         for (let i = 0; i < utf8Bytes.length; i++) {
             binary += String.fromCharCode(utf8Bytes[i]);
@@ -495,13 +705,14 @@ export function urlHashToPreset(hash: string): { success: boolean; preset?: Plat
         const jsonStr = new TextDecoder().decode(bytes);
         const parsed = JSON.parse(jsonStr);
 
-        // Convert minified hash structure back to standard
         const reconstructed = {
-            version: parsed.v || 1,
+            version: parsed.v || 2,
             name: parsed.n || 'Shared Plate',
             description: parsed.d || 'Shared through acoustic link.',
             category: 'user',
+            engine: parsed.e,
             sound: parsed.s,
+            modal: parsed.m,
             visual: parsed.vi,
             gesture: parsed.g,
         };

@@ -18,6 +18,14 @@
   let u_grainAmount: WebGLUniformLocation | null = null;
   let u_tint: WebGLUniformLocation | null = null;
 
+  // Phase 9 Modal Engine uniforms
+  let u_engine_mode: WebGLUniformLocation | null = null;
+  let u_mode_count: WebGLUniformLocation | null = null;
+  let u_mode_nm: WebGLUniformLocation | null = null;
+  let u_mode_amp: WebGLUniformLocation | null = null;
+  let u_strike_pos: WebGLUniformLocation | null = null;
+  let u_strike_time: WebGLUniformLocation | null = null;
+
   // Visual parameter state with smoothing to avoid jarring graphical jumps
   let currentSharpness = 1.5;
   let targetSharpness = 1.5;
@@ -26,6 +34,10 @@
   let currentTint = { r: 0.29, g: 0.48, b: 0.42 };
   let targetTint = { r: 0.29, g: 0.48, b: 0.42 };
   let activeModeMapping: ModeMappingType = 'harmonic';
+
+  // Strike ripple animation state
+  let lastStrikePos = { x: 0.5, y: 0.5 };
+  let lastStrikeTimeMs = -999999;
 
   const vertexShaderSource = `#version 300 es
     in vec2 a_position;
@@ -45,6 +57,14 @@
     uniform float u_lineSharpness;
     uniform float u_grainAmount;
     uniform vec3 u_tint;
+
+    // Modal engine uniforms
+    uniform int u_engine_mode;
+    uniform int u_mode_count;
+    uniform vec2 u_mode_nm[32];
+    uniform float u_mode_amp[32];
+    uniform vec2 u_strike_pos;
+    uniform float u_strike_time;
 
     out vec4 fragColor;
 
@@ -82,11 +102,39 @@
         vec2 evalPos = pos + jitter * (u_amplitude * 0.02);
 
         float pi = 3.14159265359;
-        
-        // Evaluate the Chladni pattern at the slightly jittered position
-        float chladni = sin(u_n * pi * evalPos.x) * sin(u_m * pi * evalPos.y) - sin(u_m * pi * evalPos.x) * sin(u_n * pi * evalPos.y);
+        float chladni = 0.0;
 
-        // The sand settles where the vibration is 0 (nodal lines).
+        if (u_engine_mode == 1) {
+            // Modal Synthesis Engine: Physical superposition of live modes
+            // Map evalPos to normalized plate coordinates [0.0, 1.0]
+            vec2 plateCoords = evalPos * 0.4 + 0.5;
+            float totalWeight = 0.0;
+
+            for (int i = 0; i < 32; i++) {
+                if (i >= u_mode_count) break;
+                float amp = u_mode_amp[i];
+                if (amp > 0.0001) {
+                    vec2 nm = u_mode_nm[i];
+                    // Real square plate mode superposition phi_nm(x, y) = sin(n*pi*x)*sin(m*pi*y) - sin(m*pi*x)*sin(n*pi*y)
+                    float phi = sin(nm.x * pi * plateCoords.x) * sin(nm.y * pi * plateCoords.y)
+                              - sin(nm.y * pi * plateCoords.x) * sin(nm.x * pi * plateCoords.y);
+                    chladni += phi * amp;
+                    totalWeight += amp;
+                }
+            }
+
+            if (totalWeight > 0.0001) {
+                chladni /= totalWeight;
+            } else {
+                // When completely silent, rest on fundamental mode (1, 1) or quiet pattern
+                chladni = sin(pi * plateCoords.x) * sin(pi * plateCoords.y);
+            }
+        } else {
+            // Subtractive Engine: Continuous frequency-mapped (n, m) pair
+            chladni = sin(u_n * pi * evalPos.x) * sin(u_m * pi * evalPos.y) - sin(u_m * pi * evalPos.x) * sin(u_n * pi * evalPos.y);
+        }
+
+        // The sand settles where vibration is 0 (nodal lines).
         // Brightness is high when abs(chladni) is close to 0.
         // Line thickness is shaped by lineSharpness preset parameter
         float sharpness = max(0.2, u_lineSharpness);
@@ -112,6 +160,19 @@
         float dist = length(st);
         float vignette = smoothstep(0.7, 1.8, dist);
         color = mix(color, rimColor, vignette * 0.5);
+
+        // Strike Marker: Subtle brass ripple ring indicating strike location & cancellation
+        if (u_strike_time >= 0.0 && u_strike_time < 1.0) {
+            // Map strike position [0, 1] to screen space pos
+            vec2 strikeSt = (u_strike_pos - 0.5) / 0.4;
+            float dStrike = length(pos - strikeSt);
+            float ringRadius = 0.02 + u_strike_time * 0.22;
+            float ring = smoothstep(0.015, 0.002, abs(dStrike - ringRadius)) * (1.0 - u_strike_time);
+            
+            // Subtle glowing brass strike marker
+            vec3 strikeColor = vec3(0.92, 0.78, 0.50);
+            color = mix(color, strikeColor, ring * 0.75);
+        }
 
         fragColor = vec4(color, 1.0);
     }
@@ -139,6 +200,38 @@
     targetGrain = visual.grainAmount;
     targetTint = { ...visual.tint };
     activeModeMapping = visual.modeMapping;
+  }
+
+  export function triggerStrike(x: number, y: number) {
+    lastStrikePos = { x, y };
+    lastStrikeTimeMs = performance.now();
+  }
+
+  function handlePlateClick(e: MouseEvent | TouchEvent) {
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    // Convert click to normalized plate coordinates [0, 1]
+    const u = (clientX - rect.left) / rect.width;
+    const v = (clientY - rect.top) / rect.height;
+
+    // Invert Y for acoustic plate coordinate system
+    const strikeX = Math.max(0.02, Math.min(0.98, u));
+    const strikeY = Math.max(0.02, Math.min(0.98, 1.0 - v));
+
+    triggerStrike(strikeX, strikeY);
+
+    if (audioEngine.isReady) {
+      if (audioEngine.engineMode === 'modal') {
+        audioEngine.strike(strikeX, strikeY, 0.9);
+      } else {
+        // In subtractive mode, click toggles or triggers a brief note
+        audioEngine.noteOn(audioEngine.currentFreq || 220, 0.9);
+        setTimeout(() => audioEngine.noteOff(audioEngine.currentFreq || 220), 200);
+      }
+    }
   }
 
   function initWebGL() {
@@ -191,6 +284,14 @@
     u_lineSharpness = gl.getUniformLocation(program, 'u_lineSharpness');
     u_grainAmount = gl.getUniformLocation(program, 'u_grainAmount');
     u_tint = gl.getUniformLocation(program, 'u_tint');
+
+    // Phase 9 Modal Uniforms
+    u_engine_mode = gl.getUniformLocation(program, 'u_engine_mode');
+    u_mode_count = gl.getUniformLocation(program, 'u_mode_count');
+    u_mode_nm = gl.getUniformLocation(program, 'u_mode_nm');
+    u_mode_amp = gl.getUniformLocation(program, 'u_mode_amp');
+    u_strike_pos = gl.getUniformLocation(program, 'u_strike_pos');
+    u_strike_time = gl.getUniformLocation(program, 'u_strike_time');
   }
 
   // Predefined modal pairs for various plate geometries
@@ -293,8 +394,20 @@
 
     // Get audio data
     const { rms, freq } = audioEngine.getAnalysis();
-    
     const modes = mapFreqToModes(freq, activeModeMapping);
+
+    const isModal = audioEngine.engineMode === 'modal';
+    gl.uniform1i(u_engine_mode, isModal ? 1 : 0);
+
+    if (isModal) {
+      gl.uniform1i(u_mode_count, 32);
+      gl.uniform2fv(u_mode_nm, audioEngine.getModeTable());
+      gl.uniform1fv(u_mode_amp, audioEngine.getModalAmplitudes());
+    }
+
+    const strikeElapsedSec = lastStrikeTimeMs > 0 ? (time - lastStrikeTimeMs) * 0.001 : 999.0;
+    gl.uniform2f(u_strike_pos, lastStrikePos.x, lastStrikePos.y);
+    gl.uniform1f(u_strike_time, strikeElapsedSec);
 
     gl.uniform2f(u_resolution, canvasEl.width, canvasEl.height);
     gl.uniform1f(u_time, time * 0.001); // time in seconds
@@ -322,7 +435,14 @@
   });
 </script>
 
-<canvas bind:this={canvasEl} class="chladni-canvas"></canvas>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<canvas 
+  bind:this={canvasEl} 
+  class="chladni-canvas"
+  on:click={handlePlateClick}
+  aria-label="Interactive Acoustic Chladni Plate"
+></canvas>
 
 <style>
   .chladni-canvas {
@@ -332,7 +452,7 @@
     position: fixed;
     top: 0;
     left: 0;
-    z-index: -1; /* Place it behind everything else */
-    pointer-events: none; /* Let clicks pass through */
+    z-index: 0;
+    cursor: crosshair;
   }
 </style>
